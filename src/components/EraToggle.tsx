@@ -1,4 +1,5 @@
 import type { Era } from '../game/state';
+import { sound } from '../game/audio';
 
 interface EraToggleProps {
   era: Era;
@@ -13,6 +14,12 @@ const ERAS: { key: Era; label: string }[] = [
 ];
 
 export function EraToggle({ era, locked, onChange }: EraToggleProps) {
+  const handleClick = (key: Era) => {
+    if (locked && key !== 'present') return;
+    sound.playClick(1.3);
+    onChange(key);
+  };
+
   return (
     <div className="era-toggle">
       {ERAS.map((e) => (
@@ -20,7 +27,7 @@ export function EraToggle({ era, locked, onChange }: EraToggleProps) {
           key={e.key}
           className={`era-toggle-btn ${e.key} ${era === e.key ? 'active' : ''}`}
           disabled={locked && e.key !== 'present'}
-          onClick={() => onChange(e.key)}
+          onClick={() => handleClick(e.key)}
         >
           {e.label}
         </button>

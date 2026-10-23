@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Era, TrainPhase } from '../game/state';
 import type { ClueDefinition } from '../game/levels';
+import { sound } from '../game/audio';
 
 interface ClueHotspotProps {
   clue: ClueDefinition;
@@ -19,6 +20,7 @@ export function ClueHotspot({ clue, era, trainPhase, isOpen, onOpen, onClose }: 
   if (clue.era !== era) return null;
 
   const handleClick = () => {
+    sound.playClick(1.1);
     if (isOpen) {
       onClose();
       return;
@@ -50,6 +52,7 @@ export function ClueHotspot({ clue, era, trainPhase, isOpen, onOpen, onClose }: 
     const type = () => {
       if (idx < fullText.length) {
         setTypedText(fullText.substring(0, idx + 1));
+        if (idx % 2 === 0) sound.playClueType();
         idx++;
         timerRef.current = window.setTimeout(type, 25);
       }

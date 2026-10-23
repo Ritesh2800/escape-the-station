@@ -1,3 +1,5 @@
+import { sound } from '../game/audio';
+
 interface KeypadProps {
   value: string;
   maxLength: number;
@@ -7,17 +9,20 @@ interface KeypadProps {
 export function Keypad({ value, maxLength, onChange }: KeypadProps) {
   const handleDigit = (d: string) => {
     if (value.length < maxLength) {
+      sound.playClick(1.0 + parseInt(d, 10) * 0.05);
       onChange(value + d);
     }
   };
 
   const handleBackspace = () => {
+    sound.playClick(0.7);
     onChange(value.slice(0, -1));
   };
 
   // Also listen for keyboard
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (/^[0-9]$/.test(e.key) && value.length < maxLength) {
+      sound.playClick(1.0 + parseInt(e.key, 10) * 0.05);
       onChange(value + e.key);
     } else if (e.key === 'Backspace') {
       handleBackspace();

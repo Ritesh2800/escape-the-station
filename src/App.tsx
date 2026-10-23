@@ -14,6 +14,7 @@ import { useTrainLoop } from './game/trainLoop';
 import { LEVEL1_CLUES, LEVEL2_CLUES, getCluesForEra } from './game/levels';
 import { validateAll, validateLevel1Segments, VALIDATORS } from './game/validators';
 import { LEVEL1_TARGET } from './game/config';
+import { sound } from './game/audio';
 import type { Era, TrainPhase } from './game/state';
 
 export default function App() {
@@ -23,6 +24,8 @@ export default function App() {
   const [stageSize, setStageSize] = useState({ width: 1280, height: 720 });
   const gameInputRef = useRef<HTMLInputElement>(null);
   const shakeTimeoutRef = useRef<number>(0);
+  const prevPassedCountRef = useRef<number>(0);
+  const prevTrainPhaseRef = useRef<TrainPhase>(state.trainPhase);
 
   // Train loop
   const onPhaseChange = useCallback((phase: TrainPhase, timeLeft: number) => {
@@ -34,6 +37,20 @@ export default function App() {
     onPhaseChange
   );
 
+  // Train sound effects on phase change
+  useEffect(() => {
+    if (state.uiMode !== 'EXPANDED') return;
+    if (state.trainPhase !== prevTrainPhaseRef.current) {
+      prevTrainPhaseRef.current = state.trainPhase;
+      if (state.trainPhase === 'ARRIVING' || state.trainPhase === 'DEPARTING') {
+        sound.playTrainWhistle();
+        sound.startTrainSound();
+      } else {
+        sound.stopTrainSound();
+      }
+    }
+  }, [state.trainPhase, state.uiMode]);
+
   // Level 1 segment badges
   const l1Segments = state.level === 1 ? validateLevel1Segments(state.input) : {};
 
@@ -42,15 +59,24 @@ export default function App() {
     if (state.level === 2 && state.input.length > 0) {
       const results = validateAll(state.input);
       dispatch({ type: 'SET_RULES', results });
+      const passCount = Object.values(results).filter(Boolean).length;
+      if (passCount > prevPassedCountRef.current) {
+        sound.playRulePass();
+      }
+      prevPassedCountRef.current = passCount;
+    } else {
+      prevPassedCountRef.current = 0;
     }
   }, [state.input, state.level, dispatch]);
 
   const handleExpand = useCallback((rect: DOMRect) => {
+    sound.playClick(1.2);
     startExpand(rect);
   }, [startExpand]);
 
   const handleExpandComplete = useCallback(() => {
     finishExpand();
+    sound.startBGM();
     // Focus game input after expand
     setTimeout(() => {
       gameInputRef.current?.focus();
@@ -66,6 +92,7 @@ export default function App() {
       if (value === LEVEL1_TARGET) {
         // WIN Level 1
         setShowWin(true);
+        sound.playVictoryFanfare();
         freezeTrain();
         setTimeout(() => {
           setShowWin(false);
@@ -86,6 +113,7 @@ export default function App() {
   const handleL2Input = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     if (val.length <= 6) {
+      sound.playClick(1.0 + val.length * 0.05);
       dispatch({ type: 'SET_INPUT', value: val });
     }
   }, [dispatch]);
@@ -97,11 +125,14 @@ export default function App() {
       const allPass = VALIDATORS.every(v => results[v.id]);
       if (allPass && !showWin && !state.solved) {
         setShowWin(true);
+        sound.playVictoryFanfare();
         freezeTrain();
         setTimeout(() => {
           solve();
           setTimeout(() => {
             setShowWin(false);
+            sound.stopBGM();
+            sound.stopTrainSound();
             startCollapse();
           }, 2000);
         }, 1500);
@@ -110,6 +141,8 @@ export default function App() {
   }, [state.input, state.level, state.solved, showWin, freezeTrain, solve, startCollapse]);
 
   const handleCollapseComplete = useCallback(() => {
+    sound.stopBGM();
+    sound.stopTrainSound();
     finishCollapse();
   }, [finishCollapse]);
 
@@ -117,6 +150,7 @@ export default function App() {
   const handleEraChange = useCallback((era: Era) => {
     if (era === state.era) return;
     setIsGlitching(true);
+    sound.playGlitchWarp();
     dispatch({ type: 'SET_POPUP', id: null });
     setTimeout(() => {
       dispatch({ type: 'SET_ERA', era });
@@ -134,6 +168,7 @@ export default function App() {
 
   // Shake input on wrong answer
   const triggerShake = () => {
+    sound.playError();
     const el = document.querySelector('.keypad-digits');
     if (el) {
       el.classList.add('shake');

@@ -39,3 +39,10 @@
 - **AI tool:** Google Antigravity (Gemini)
 - **Output:** Complete wiring of all components: pixel transition, train loop, Level 1 keypad + badges, Level 2 text input + rule list, era toggle, clue hotspots, win screens, interstitial "CHRONO-SHIFT DEVICE ONLINE".
 - **Manual changes:** None.
+
+### Stage 5: Polish & 8-Bit Audio Engine
+- **AI tool:** Google Antigravity (Gemini)
+- **Prompt:** "add some game music giving pixelated vibes fast pls, click sounds, trains soundts etc."
+- **Output:** Pure Web Audio API 8-bit chiptune synthesizer `audio.ts` (authentic arcade BGM, train steam whistle & rhythmic chug, typewriter clue dialogue blips, UI click/keystroke blips, era glitch frequency sweep, rule pass sparkle chime, error buzz, and victory fanfare) with HUD mute toggle.
+- **Manual changes:** None.
+
