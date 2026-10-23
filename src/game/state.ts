@@ -1,6 +1,5 @@
 import { useReducer, useCallback } from 'react';
 
-// Types from Section 10
 export type Era = 'past' | 'present' | 'future';
 export type TrainPhase = 'ARRIVING' | 'DOCKED' | 'DEPARTING' | 'EMPTY';
 export type Level = 1 | 2;
@@ -16,8 +15,9 @@ export interface GameState {
   ruleResults: Record<string, boolean>;
   openPopupId: string | null;
   solved: boolean;
-  /** The bounding rect of the password input when it was clicked */
   inputRect: DOMRect | null;
+  level1Won: boolean;
+  showInterstitial: boolean;
 }
 
 type GameAction =
@@ -29,7 +29,12 @@ type GameAction =
   | { type: 'RESET' }
   | { type: 'SET_INPUT'; value: string }
   | { type: 'SET_ERA'; era: Era }
-  | { type: 'SET_TRAIN_PHASE'; phase: TrainPhase; timeLeft: number };
+  | { type: 'SET_TRAIN_PHASE'; phase: TrainPhase; timeLeft: number }
+  | { type: 'SET_POPUP'; id: string | null }
+  | { type: 'SET_RULES'; results: Record<string, boolean> }
+  | { type: 'WIN_LEVEL1' }
+  | { type: 'START_LEVEL2' }
+  | { type: 'SET_LEVEL'; level: Level };
 
 const initialState: GameState = {
   uiMode: 'COLLAPSED',
@@ -42,6 +47,8 @@ const initialState: GameState = {
   openPopupId: null,
   solved: false,
   inputRect: null,
+  level1Won: false,
+  showInterstitial: false,
 };
 
 function gameReducer(state: GameState, action: GameAction): GameState {
@@ -61,9 +68,19 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     case 'SET_INPUT':
       return { ...state, input: action.value };
     case 'SET_ERA':
-      return { ...state, era: action.era };
+      return { ...state, era: action.era, openPopupId: null };
     case 'SET_TRAIN_PHASE':
       return { ...state, trainPhase: action.phase, phaseTimeLeft: action.timeLeft };
+    case 'SET_POPUP':
+      return { ...state, openPopupId: action.id };
+    case 'SET_RULES':
+      return { ...state, ruleResults: action.results };
+    case 'WIN_LEVEL1':
+      return { ...state, level1Won: true, showInterstitial: true, input: '' };
+    case 'START_LEVEL2':
+      return { ...state, level: 2, showInterstitial: false, input: '' };
+    case 'SET_LEVEL':
+      return { ...state, level: action.level, input: '' };
     default:
       return state;
   }
@@ -75,35 +92,11 @@ export function useGameState() {
   const startExpand = useCallback((inputRect: DOMRect) => {
     dispatch({ type: 'START_EXPAND', inputRect });
   }, []);
+  const finishExpand = useCallback(() => dispatch({ type: 'FINISH_EXPAND' }), []);
+  const startCollapse = useCallback(() => dispatch({ type: 'START_COLLAPSE' }), []);
+  const finishCollapse = useCallback(() => dispatch({ type: 'FINISH_COLLAPSE' }), []);
+  const solve = useCallback(() => dispatch({ type: 'SOLVE' }), []);
+  const reset = useCallback(() => dispatch({ type: 'RESET' }), []);
 
-  const finishExpand = useCallback(() => {
-    dispatch({ type: 'FINISH_EXPAND' });
-  }, []);
-
-  const startCollapse = useCallback(() => {
-    dispatch({ type: 'START_COLLAPSE' });
-  }, []);
-
-  const finishCollapse = useCallback(() => {
-    dispatch({ type: 'FINISH_COLLAPSE' });
-  }, []);
-
-  const solve = useCallback(() => {
-    dispatch({ type: 'SOLVE' });
-  }, []);
-
-  const reset = useCallback(() => {
-    dispatch({ type: 'RESET' });
-  }, []);
-
-  return {
-    state,
-    dispatch,
-    startExpand,
-    finishExpand,
-    startCollapse,
-    finishCollapse,
-    solve,
-    reset,
-  };
+  return { state, dispatch, startExpand, finishExpand, startCollapse, finishCollapse, solve, reset };
 }
