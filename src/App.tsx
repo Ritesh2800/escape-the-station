@@ -222,76 +222,7 @@ export default function App() {
       >
         {state.uiMode === 'EXPANDED' && (
           <>
-            {/* Warning Banner */}
-            <div className="warning-banner">
-              ⚠ SECURITY NOTE: THIS IS A GAME. DO NOT ENTER ANY REAL PASSWORD. ⚠
-            </div>
-
-            {/* Game Panel */}
-            <div className="game-panel">
-              <div className="game-panel-row">
-                <HUD
-                  phase={state.trainPhase}
-                  timeLeft={state.phaseTimeLeft}
-                  level={state.level}
-                  rulePassCount={rulePassCount}
-                  ruleTotalCount={VALIDATORS.length}
-                />
-                <EraToggle
-                  era={state.era}
-                  locked={state.level === 1}
-                  onChange={handleEraChange}
-                />
-              </div>
-
-              {state.level === 1 ? (
-                /* Level 1: Keypad + Segment Badges */
-                <div className="game-panel-row" style={{ flexDirection: 'column', gap: 8 }}>
-                  <Keypad
-                    value={state.input}
-                    maxLength={6}
-                    onChange={handleL1Input}
-                  />
-                  <div className="badge-row">
-                    {(['PLATFORM', 'RULEBOOK', 'BOXCAR'] as const).map(seg => {
-                      const status = l1Segments[seg] || 'pending';
-                      return (
-                        <span key={seg} className={`badge ${status}`}>
-                          {status === 'pass' ? '✓' : status === 'fail' ? '✗' : '○'} {seg}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                /* Level 2: Text Input + Rule List */
-                <div className="game-panel-row" style={{ flexDirection: 'column', gap: 8, alignItems: 'center' }}>
-                  <div className="game-input-wrapper">
-                    <input
-                      ref={gameInputRef}
-                      type="text"
-                      className={`game-input ${state.input.length > 0 && rulePassCount < VALIDATORS.length ? '' : ''}`}
-                      placeholder="ENTER CODE..."
-                      value={state.input}
-                      onChange={handleL2Input}
-                      maxLength={6}
-                      autoFocus
-                      id="game-input-field"
-                      autoComplete="off"
-                    />
-                    <span style={{
-                      position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                      fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'rgba(244,234,210,.4)',
-                    }}>
-                      {state.input.length}/6
-                    </span>
-                  </div>
-                  <RuleList results={state.ruleResults} input={state.input} />
-                </div>
-              )}
-            </div>
-
-            {/* Scene */}
+            {/* Fullscreen Scene taking entire viewport */}
             <Scene era={state.era} isGlitching={isGlitching}>
               {/* Train */}
               <Train
@@ -315,6 +246,78 @@ export default function App() {
                 />
               ))}
             </Scene>
+
+            {/* Floating HUD & Password / Keypad Overlay directly on the main train background */}
+            <div className="game-hud-overlay">
+              {/* Warning Banner */}
+              <div className="warning-banner">
+                ⚠ SECURITY NOTE: THIS IS A GAME. DO NOT ENTER ANY REAL PASSWORD. ⚠
+              </div>
+
+              {/* Floating Game Panel */}
+              <div className="game-panel floating-panel">
+                <div className="game-panel-row">
+                  <HUD
+                    phase={state.trainPhase}
+                    timeLeft={state.phaseTimeLeft}
+                    level={state.level}
+                    rulePassCount={rulePassCount}
+                    ruleTotalCount={VALIDATORS.length}
+                  />
+                  <EraToggle
+                    era={state.era}
+                    locked={state.level === 1}
+                    onChange={handleEraChange}
+                  />
+                </div>
+
+                {state.level === 1 ? (
+                  /* Level 1: Keypad + Segment Badges */
+                  <div className="game-panel-row" style={{ flexDirection: 'column', gap: 6 }}>
+                    <Keypad
+                      value={state.input}
+                      maxLength={6}
+                      onChange={handleL1Input}
+                    />
+                    <div className="badge-row">
+                      {(['PLATFORM', 'RULEBOOK', 'BOXCAR'] as const).map(seg => {
+                        const status = l1Segments[seg] || 'pending';
+                        return (
+                          <span key={seg} className={`badge ${status}`}>
+                            {status === 'pass' ? '✓' : status === 'fail' ? '✗' : '○'} {seg}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  /* Level 2: Text Input + Rule List */
+                  <div className="game-panel-row" style={{ flexDirection: 'column', gap: 6, alignItems: 'center' }}>
+                    <div className="game-input-wrapper">
+                      <input
+                        ref={gameInputRef}
+                        type="text"
+                        className="game-input"
+                        placeholder="ENTER CODE..."
+                        value={state.input}
+                        onChange={handleL2Input}
+                        maxLength={6}
+                        autoFocus
+                        id="game-input-field"
+                        autoComplete="off"
+                      />
+                      <span style={{
+                        position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                        fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'rgba(244,234,210,.6)',
+                      }}>
+                        {state.input.length}/6
+                      </span>
+                    </div>
+                    <RuleList results={state.ruleResults} input={state.input} />
+                  </div>
+                )}
+              </div>
+            </div>
 
             {/* Win Screen Overlay */}
             {showWin && <WinScreen level={state.level} />}
