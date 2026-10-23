@@ -81,6 +81,12 @@ export function Scene({ era, isGlitching = false, children }: SceneProps) {
           transform: 'translateX(-50%)',
           bottom: 0,
           position: 'absolute',
+          backgroundColor:
+            era === 'past'
+              ? '#2c1e14'
+              : era === 'future'
+              ? '#0d0722'
+              : '#0f172a',
           backgroundImage: `url(${bgImage})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center bottom',
