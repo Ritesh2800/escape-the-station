@@ -1,34 +1,41 @@
-# AI Log — Escape the Station: Chrono-Shift
+# AI_LOG.md — Escape the Station: Chrono-Shift
 
-> This file logs every AI tool and prompt used, what it produced, and what was manually changed.
+## Stage 1 — Shell (commit 1)
+- **AI tool:** Google Antigravity (Gemini)
+- **Prompt:** Build Stage 1: Vite + React + TypeScript + Tailwind project, collapsed password card with FLIP expand/collapse.
+- **Output:** Full project scaffolding, PasswordField component, GameOverlay with FLIP animation, game state reducer, config.
+- **Manual changes:** None.
 
----
+## Stage 2–4 — Pixel Transition Fix + All Stages (commit 2)
 
-## Stage 1 — Shell (expand/collapse animation)
+### Part A: Pixel Train Transition
+- **AI tool:** Google Antigravity (Gemini)
+- **Prompt:** Replace FLIP animation with pixel-block technique from reference/Login_Pixel_Train_Demo.html.
+- **Output:** `pixelTransition.ts` — 8px block grid covering input, glitch flicker (4×70ms), blocks fall to bottom as pixel train via Web Animations API, train chugs right while game screen rises via clip-path wipe. Reverse on collapse.
+- **Manual changes:** None.
 
-**Date:** 2026-10-23
+### Part B: 2D Pixel Backgrounds
+- **AI tool:** Google Antigravity (Gemini)
+- **Prompt:** Replace 3D-looking AI background with user's actual 2D pixel-art PNGs.
+- **Output:** `Scene.tsx` — 16:9 bottom-anchored scaling, era-switched backgrounds, glitch transition support. Copied original pixel_bg PNGs from user's Downloads.
+- **Manual changes:** None.
 
-**AI Tool:** Google Antigravity (Claude Opus 4.6 Thinking)
+### Stage 2: Scene + Train Loop
+- **AI tool:** Google Antigravity (Gemini)
+- **Output:** `trainLoop.ts` (ARRIVING→DOCKED→DEPARTING→EMPTY cycle via rAF), `Train.tsx` (colored rectangle engine + 7 carriages with windows/wheels, phase-based x-position), `HUD.tsx` (phase badge, countdown timer, level indicator). Scene uses percentage-based layout zones from spec Section 3.1.
+- **Manual changes:** None.
 
-**What was done:**
-1. Scaffolded Vite + React + TypeScript project with `create-vite@latest --template react-ts`
-2. Installed Tailwind CSS v4 via `@tailwindcss/vite` plugin
-3. Created the collapsed password card component (`PasswordField.tsx`) — normal-looking input with eye icon, helper text, and verified state
-4. Created the FLIP expand/collapse overlay (`GameOverlay.tsx`) implementing the signature animation:
-   - Measures input rect with `getBoundingClientRect()` on click
-   - Renders fixed-position overlay that animates from input rect to full viewport
-   - Cross-fades plain style → pixel style (Press Start 2P, 4px borders, dark navy) in the first 40%
-   - Fades in the present-era background image in the last 40%
-   - Reverse animation on collapse
-   - Uses `requestAnimationFrame` with exponential ease-out (close to `cubic-bezier(0.22, 1, 0.36, 1)`)
-5. Created game state reducer (`game/state.ts`) with typed actions for the UI lifecycle
-6. Created game config (`game/config.ts`) with constants from spec sections 4, 5, 9.2, 9.6
-7. Added Press Start 2P and Inter fonts via Google Fonts
-8. Generated a placeholder present-era background image (the original images were lost during project scaffolding)
-9. Temporary "Solve" button triggers collapse with verified state after 2s delay
-10. "Don't use a real password" warning visible in both collapsed and expanded states
-11. `prefers-reduced-motion` support replaces animation with instant transition
+### Stage 3: Level 1 — Platform Dispatch Console
+- **AI tool:** Google Antigravity (Gemini)
+- **Output:** `Keypad.tsx` (on-screen 0-9 + keyboard support, 6-digit input), `ClueHotspot.tsx` (sparkle pulse, typewriter popup, docked-only gating), `levels.ts` (3 clue definitions with % coordinates), `validators.ts` (`validateLevel1Segments` for PLATFORM/RULEBOOK/BOXCAR badges). 3 segment badges turn green/red. Win at `072516` → ACCESS GRANTED + confetti.
+- **Manual changes:** None.
 
-**What was manually changed:** Nothing — all code was AI-generated and tested in the browser.
+### Stage 4: Level 2 — Chrono-Vault + Eras
+- **AI tool:** Google Antigravity (Gemini)
+- **Output:** `EraToggle.tsx` (1890/NOW/2080, locked during Level 1), `RuleList.tsx` (5 validators with live badges), `WinScreen.tsx` (confetti burst, VAULT OPEN), `validators.ts` (5 pure functions: charTypes, anchors, digitSum, symbolLogic, stationId — all pass for `@S2!E8`). 6 clue hotspots across 3 eras. Glitch transition on era switch. Win triggers collapse back to verified field.
+- **Manual changes:** None.
 
-**Result:** All three states (collapsed → expanded → verified) work with smooth animation and zero console errors.
+### App.tsx Integration
+- **AI tool:** Google Antigravity (Gemini)
+- **Output:** Complete wiring of all components: pixel transition, train loop, Level 1 keypad + badges, Level 2 text input + rule list, era toggle, clue hotspots, win screens, interstitial "CHRONO-SHIFT DEVICE ONLINE".
+- **Manual changes:** None.
