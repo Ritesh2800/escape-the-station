@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import type { UiMode } from '../game/state';
-import { launchPixelTrainTransition, collapsePixelTrainTransition } from './pixelTransition';
+import { launchPixelTransition, collapsePixelTransition } from './pixelTransition';
 
 interface GameOverlayProps {
   uiMode: UiMode;
@@ -20,7 +20,6 @@ export function GameOverlay({
   children,
 }: GameOverlayProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const [, setContentVisible] = useState(false);
   const isTransitioningRef = useRef(false);
 
   // EXPAND
@@ -33,9 +32,7 @@ export function GameOverlay({
     isTransitioningRef.current = true;
     document.body.classList.add('scroll-locked');
 
-    setTimeout(() => setContentVisible(true), 300);
-
-    launchPixelTrainTransition(inputEl, gameEl, () => {
+    launchPixelTransition(inputEl, gameEl, () => {
       isTransitioningRef.current = false;
       onExpandComplete();
     });
@@ -49,9 +46,8 @@ export function GameOverlay({
     if (!inputEl || !gameEl) return;
 
     isTransitioningRef.current = true;
-    setContentVisible(false);
 
-    collapsePixelTrainTransition(inputEl, gameEl, () => {
+    collapsePixelTransition(inputEl, gameEl, () => {
       document.body.classList.remove('scroll-locked');
       isTransitioningRef.current = false;
       onCollapseComplete();
@@ -68,7 +64,7 @@ export function GameOverlay({
     <div
       ref={overlayRef}
       id="game-overlay"
-      className="game-overlay on"
+      className={`game-overlay ${uiMode === 'EXPANDED' ? 'on' : ''}`}
     >
       {children}
     </div>

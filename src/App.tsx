@@ -146,6 +146,20 @@ export default function App() {
     finishCollapse();
   }, [finishCollapse]);
 
+  // ESC key to return to login
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && state.uiMode === 'EXPANDED') {
+        e.preventDefault();
+        sound.stopBGM();
+        sound.stopTrainSound();
+        startCollapse();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [state.uiMode, startCollapse]);
+
   // Era change with glitch
   const handleEraChange = useCallback((era: Era) => {
     if (era === state.era) return;
@@ -220,7 +234,7 @@ export default function App() {
         onCollapseComplete={handleCollapseComplete}
         onSolve={() => {}}
       >
-        {state.uiMode === 'EXPANDED' && (
+        {state.uiMode !== 'COLLAPSED' && (
           <>
             {/* Fullscreen Scene taking entire viewport */}
             <Scene era={state.era} isGlitching={isGlitching}>

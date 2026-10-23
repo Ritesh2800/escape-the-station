@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Login Pixel Expand Demo</title>
+<style>
+  :root { --bg:#f3f4f6; --card:#fff; --text:#111827; --muted:#374151; --line:#d1d5db; --accent:#2563eb; --accent-h:#1d4ed8; --game:#0b1026; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg:#111827; --card:#1f2937; --text:#f9fafb; --muted:#d1d5db; --line:#4b5563; }
+  }
+  html, body { height:100%; margin:0; }
+  body { background:var(--bg); color:var(--text); overflow:hidden; display:flex; align-items:center; justify-content:center;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; user-select:none; }
+  .card { width:100%; max-width:360px; margin:0 16px; box-sizing:border-box; background:var(--card); border:1px solid var(--line); border-radius:6px; padding:32px; box-shadow:0 1px 2px rgba(0,0,0,.06); }
+  h2 { margin:0 0 24px; text-align:center; font-size:20px; font-weight:600; }
+  form { display:flex; flex-direction:column; gap:16px; }
+  label { display:block; font-size:12px; font-weight:500; color:var(--muted); margin-bottom:6px; }
+  input { width:100%; height:40px; box-sizing:border-box; padding:8px 12px; font-size:14px; color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:4px; outline:none; }
+  input:focus { border-color:var(--accent); }
+  button.login { height:40px; font-size:14px; font-weight:500; color:#fff; background:var(--accent); border:0; border-radius:4px; cursor:pointer; transition:background .2s; }
+  button.login:hover { background:var(--accent-h); }
+
+  /* Full-screen game layer (hidden until .on). The pixel canvas above it uncovers it block by block. */
+  #game { position:fixed; inset:0; background:var(--game); z-index:50; display:none; flex-direction:column; align-items:center; justify-content:center; gap:20px; clip-path:inset(0 round 0); }
+  #game.on { display:flex; }
+
+  /* Pixel block grid that sits exactly over the input (pixelate / de-pixelate effect) */
+  #grid { position:fixed; z-index:40; pointer-events:none; }
+  #grid i { position:absolute; width:var(--w); height:var(--h); }
+
+  /* Full-screen pixel canvas: blocks spread across the page (open) and retreat to the input (close) */
+  #cover { position:fixed; left:0; top:0; z-index:60; pointer-events:none; image-rendering:pixelated; }
+
+  .title { display:flex; gap:.04em; font-size:clamp(40px,10vw,96px); font-weight:800; letter-spacing:.08em; color:#fff; text-shadow:0 0 25px rgba(255,255,255,.25); }
+  .title span { display:inline-block; opacity:0; }
+  .title span.sp { width:.35em; }
+  .title.go span { animation: drop .9s cubic-bezier(.3,.7,.4,1) forwards, wave 1.1s ease-in-out infinite; animation-delay: calc(var(--i) * 70ms), calc(.9s + var(--i) * 90ms); }
+  @keyframes drop {
+    0% { transform:translateY(-70vh) scaleY(1.3); opacity:0; }
+    30% { opacity:1; }
+    55% { transform:translateY(0) scale(1.25,.7); }
+    72% { transform:translateY(-60px) scale(.9,1.1); }
+    86% { transform:translateY(0) scale(1.1,.9); }
+    100% { transform:translateY(0) scale(1); opacity:1; }
+  }
+  @keyframes wave { 0%,100% { transform:translateY(0); opacity:1; } 40% { transform:translateY(-28px); opacity:1; } 60% { transform:translateY(0) scale(1.08,.92); opacity:1; } }
+  .hint { font-size:14px; color:#94a3b8; margin:0; opacity:0; transition:opacity .5s .9s; }
+  #game.show .hint { opacity:1; }
+  kbd { padding:2px 8px; font-size:12px; font-weight:600; color:#e2e8f0; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.2); border-radius:4px; }
+  #closeBtn { background:none; border:0; padding:0; font:inherit; color:#60a5fa; text-decoration:underline; cursor:pointer; }
+
+  @media (prefers-reduced-motion: reduce) { .title.go span { animation:none; opacity:1; } }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h2>Sign In</h2>
+    <form onsubmit="event.preventDefault()">
+      <div>
+        <label for="pw">Password</label>
+        <input id="pw" type="password" placeholder="Password" autocomplete="off">
+      </div>
+      <button class="login" type="submit">Login</button>
+    </form>
+  </div>
+
+  <div id="game">
+    <div class="title" id="title" aria-label="GAME HERE"></div>
+    <p class="hint">Press <kbd>ESC</kbd> or <button id="closeBtn">click here</button> to return to login</p>
+  </div>
+
+<script>
+  const pw = document.getElementById('pw');
+  const game = document.getElementById('game');
+  const title = document.getElementById('title');
+  const S = 8;                                   // pixel block size (px)
+  let state = 'idle', grid = null;
+
+  // Build the bouncing title letters (placeholder for your real game UI)
+  'GAME HERE'.split('').forEach((ch, i) => {
+    const s = document.createElement('span');
+    s.textContent = ch === ' ' ? '' : ch;
+    if (ch === ' ') s.className = 'sp';
+    s.style.setProperty('--i', i);
+    title.appendChild(s);
+  });
+
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Colour of a block when it looks like the plain input
+  function inputColor(r, c, rows, cols) {
+    const edge = r === 0 || c === 0 || r === rows - 1 || c === cols - 1;
+    return edge ? pick(['var(--line)', 'var(--line)', 'var(--accent)']) : pick(['var(--card)', 'var(--card)', 'var(--bg)']);
+  }
+  // Colour of a block when it looks like the game panel
+  function gameColor(r, c, rows, cols) {
+    const edge = r === 0 || c === 0 || r === rows - 1 || c === cols - 1;
+    return edge ? pick(['#16204a', '#2563eb', 'var(--game)']) : pick(['var(--game)', 'var(--game)', '#101838']);
+  }
+  const GLITCH = ['#2563eb', '#93c5fd', '#ffffff', '#0b1026', '#22d3ee'];
+
+  // Overlay of small blocks covering the input rect exactly
+  function buildGrid(rect, colorFn) {
+    const cols = Math.max(4, Math.round(rect.width / S));
+    const rows = Math.max(3, Math.round(rect.height / S));
+    const el = document.createElement('div');
+    el.id = 'grid';
+    el.style.cssText = `left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;--w:${rect.width / cols + 0.5}px;--h:${rect.height / rows + 0.5}px`;
+    const cells = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const b = document.createElement('i');
+      b.style.left = (c * rect.width / cols) + 'px';
+      b.style.top = (r * rect.height / rows) + 'px';
+      b.style.background = colorFn(r, c, rows, cols);
+      el.appendChild(b); cells.push({ el: b, r, c });
+    }
+    document.body.appendChild(el);
+    return { el, cells, rows, cols };
+  }
+
+  async function glitch(g, frames = 5) {
+    for (let k = 0; k < frames; k++) {
+      g.cells.forEach(o => { if (Math.random() < .5) o.el.style.background = pick(GLITCH); });
+      await wait(70);
+    }
+  }
+
+  // Blocks dissolve from one look to the other with random stagger
+  async function morph(g, colorFn) {
+    g.cells.forEach(o => {
+      o.el.style.transition = `background ${rnd(120, 260)}ms ease ${rnd(0, 220)}ms`;
+      o.el.style.background = colorFn(o.r, o.c, g.rows, g.cols);
+    });
+    await wait(500);
+  }
+
+  // ---------- Full-screen pixel cover (canvas) ----------
+  const HOT  = ['#22d3ee', '#60a5fa', '#ffffff', '#2563eb'];   // bright "frontier" pixels
+  const DARK = ['#0b1026', '#0b1026', '#101838', '#0e1430'];   // settled dark pixels
+  let cover = null;
+
+  // One item per block, with its distance (0..1) from the input rectangle
+  function makeCover(rect) {
+    const W = innerWidth, H = innerHeight;
+    const B = Math.max(12, Math.ceil(Math.sqrt(W * H / 9000)));   // chunky blocks, ~9000 max
+    const cv = document.createElement('canvas');
+    cv.id = 'cover'; cv.width = W; cv.height = H;
+    cv.style.cssText = `width:${W}px;height:${H}px`;
+    document.body.appendChild(cv);
+    const ctx = cv.getContext('2d');
+    const items = []; let maxD = 1;
+    for (let y = 0; y < H; y += B) for (let x = 0; x < W; x += B) {
+      const cx = x + B / 2, cy = y + B / 2;
+      const dx = Math.max(rect.left - cx, 0, cx - rect.right);
+      const dy = Math.max(rect.top - cy, 0, cy - rect.bottom);
+      const d = Math.hypot(dx, dy); if (d > maxD) maxD = d;
+      items.push({ x, y, d, t: 0 });
+    }
+    items.forEach(o => { o.n = o.d / maxD; });
+    return { cv, ctx, items, B };
+  }
+
+  // Runs through items in order of their .t (ms); calls draw() for each; resolves when done
+  function play(c, ms, setT, draw, hotMs = 0) {
+    c.items.forEach(o => { o.t = setT(o) * ms; });
+    const list = c.items.slice().sort((a, b) => a.t - b.t);
+    return new Promise(res => {
+      const t0 = performance.now(); let i = 0; const hot = [];
+      (function frame() {
+        const now = performance.now() - t0;
+        while (i < list.length && list[i].t <= now) { draw(list[i], true); hot.push({ o: list[i], at: now }); i++; }
+        while (hot.length && now - hot[0].at > hotMs) { draw(hot.shift().o, false); }
+        if (i >= list.length && !hot.length) res(); else requestAnimationFrame(frame);
+      })();
+    });
+  }
+
+  const paint = (c, o, color) => { c.ctx.fillStyle = color; c.ctx.fillRect(o.x, o.y, c.B, c.B); };
+
+  // Pixels spread across the page from the input, in bright colours that settle to dark
+  const spreadIn = (c, ms) => play(c, ms,
+    o => o.n * 0.85 + Math.random() * 0.15,
+    (o, first) => paint(c, o, first ? pick(HOT) : pick(DARK)), 220);
+
+  // Pixels vanish and uncover what is underneath (outward from the input = reveal the game)
+  const eraseOut = (c, ms) => play(c, ms,
+    o => o.n * 0.8 + Math.random() * 0.2,
+    (o, first) => { if (first) c.ctx.clearRect(o.x, o.y, c.B, c.B); }, 0);
+
+  // Random dissolve that covers the page
+  const coverRandom = (c, ms) => play(c, ms,
+    () => Math.random(),
+    (o, first) => paint(c, o, first ? pick(HOT) : pick(DARK)), 160);
+
+  // Pixels retreat toward the input (far ones vanish first)
+  const eraseToward = (c, ms) => play(c, ms,
+    o => (1 - o.n) * 0.8 + Math.random() * 0.2,
+    (o, first) => { if (first) c.ctx.clearRect(o.x, o.y, c.B, c.B); }, 0);
+
+  async function launch() {
+    if (state !== 'idle') return;
+    state = 'busy';
+    pw.blur();
+    const rect = pw.getBoundingClientRect();
+
+    // 1) The input turns into pixel blocks, glitches, then turns dark
+    grid = buildGrid(rect, inputColor);
+    pw.style.visibility = 'hidden';
+    if (reduce) {
+      game.classList.add('on');
+    } else {
+      await glitch(grid, 5); await morph(grid, gameColor);
+
+      // 2) Pixels SPREAD across the whole page, starting from the input
+      cover = makeCover(rect);
+      await spreadIn(cover, 1000);
+      game.classList.add('on');                 // game is now ready, hidden behind the pixels
+      grid.el.remove(); grid = null;
+
+      // 3) The pixels dissolve outward and uncover the game
+      await eraseOut(cover, 800);
+      cover.cv.remove(); cover = null;
+    }
+
+    // 4) Game content appears
+    game.classList.add('show');
+    title.classList.add('go');
+    state = 'game';
+  }
+
+  async function close() {
+    if (state !== 'game') return;
+    state = 'busy';
+    game.classList.remove('show');
+    title.classList.remove('go');
+    const rect = pw.getBoundingClientRect();   // input is hidden but still laid out
+
+    if (reduce) {
+      game.classList.remove('on');
+    } else {
+      // 1) Pixels dissolve over the whole game
+      cover = makeCover(rect);
+      await coverRandom(cover, 500);
+      game.classList.remove('on');
+      grid = buildGrid(rect, gameColor);        // dark blocks wait under the cover, exactly at the input
+
+      // 2) Pixels retreat toward the input position
+      await eraseToward(cover, 800);
+      cover.cv.remove(); cover = null;
+
+      // 3) The remaining blocks glitch and dissolve back into the plain input
+      await glitch(grid, 4); await morph(grid, inputColor);
+      grid.el.remove(); grid = null;
+    }
+    pw.style.visibility = '';
+    pw.blur();
+    state = 'idle';
+  }
+
+  pw.addEventListener('focus', launch);
+  addEventListener('keydown', e => { if (e.key === 'Escape' && state === 'game') { e.preventDefault(); close(); } });
+  document.getElementById('closeBtn').addEventListener('click', close);
+</script>
+</body>
+</html>

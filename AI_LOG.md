@@ -46,3 +46,10 @@
 - **Output:** Pure Web Audio API 8-bit chiptune synthesizer `audio.ts` (authentic arcade BGM, train steam whistle & rhythmic chug, typewriter clue dialogue blips, UI click/keystroke blips, era glitch frequency sweep, rule pass sparkle chime, error buzz, and victory fanfare) with HUD mute toggle.
 - **Manual changes:** None.
 
+### Transition Overhaul — Canvas Pixel Expand & Dissolve (Login_Pixel_Expand_Demo)
+- **AI tool:** Google Antigravity (Gemini)
+- **Prompt:** Follow reference/Login_Pixel_Expand_Demo.html exactly: input pixelates and glitches, chunky canvas pixels spread across screen from input, dissolve outward to reveal game layer; on win, reverse happens (coverRandom, eraseToward, morph back). No CSS clip-path or falling-train animation.
+- **Output:** Implemented `makeCover`, `spreadIn`, `eraseOut`, `coverRandom`, `eraseToward`, `buildGrid`, `glitch`, and `morph` in `pixelTransition.ts`. Removed clip-path from `.game-overlay`, added `#grid` and `#cover` styles, and wired ESC key handler.
+- **Manual changes:** None.
+
+

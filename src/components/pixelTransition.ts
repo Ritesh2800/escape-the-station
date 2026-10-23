@@ -1,251 +1,289 @@
 /**
- * Pixel Train Transition Engine
- * Recreates the exact technique from reference/Login_Pixel_Train_Demo.html
- * - 8px block grid covering normal password input
- * - Glitch flicker (4 frames of 70ms)
- * - Blocks fall to bottom of viewport with staggered delay + bounce, landing as a pixel train
- * - Train chugs right while game screen rises via clip-path inset(100% 0 0 0) -> inset(0)
- * - Reverse on collapse: game wipes down, blocks fly up, re-form verified input
+ * Pixel Expand & Retreat Transition Engine
+ * Follows reference/Login_Pixel_Expand_Demo.html exactly:
+ * - 8px block grid covering the input (pixelate & glitch)
+ * - Chunky canvas blocks spread across the full screen from input (spreadIn)
+ * - Canvas blocks dissolve outward to reveal the game layer (eraseOut)
+ * - On win/collapse: canvas blocks cover the screen (coverRandom), retreat toward input (eraseToward)
+ * - Input blocks glitch and dissolve back into plain input
+ * No CSS clip-path expansion or falling-train animation.
  */
 
-const S = 8; // Pixel block size (px)
+const S = 8; // Pixel block size for input grid (px)
 
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Colour of a block when it looks like the plain input
 function inputColor(r: number, c: number, rows: number, cols: number): string {
   const edge = r === 0 || c === 0 || r === rows - 1 || c === cols - 1;
-  const pal = edge ? ['#d1d5db', '#9ca3af', '#3aa0e0'] : ['#ffffff', '#ffffff', '#f3f4f6'];
-  return pal[Math.floor(Math.random() * pal.length)];
+  return edge ? pick(['#d1d5db', '#d1d5db', '#2563eb']) : pick(['#ffffff', '#ffffff', '#f3f4f6']);
 }
 
-function trainColor(r: number, c: number, rows: number, _cols: number): string {
-  const car = Math.floor(c / 9);
-  const cc = c % 9;
-  const palette = ['#3aa0e0', '#ef4444', '#f59e0b', '#10b981', '#a855f7'];
-  const body = palette[car % palette.length];
-
-  if (cc === 8) return r >= rows - 2 ? 'transparent' : '#334155'; // coupling gap
-  if (r === 0) return '#1e293b'; // roof
-  if (r === 1 || r === 2) return cc % 3 === 1 ? '#bfdbfe' : body; // windows
-  if (r === 3) return body;
-  return cc === 1 || cc === 2 || cc === 5 || cc === 6 ? '#f8fafc' : 'transparent'; // wheels
+// Colour of a block when it looks like the game panel
+function gameColor(r: number, c: number, rows: number, cols: number): string {
+  const edge = r === 0 || c === 0 || r === rows - 1 || c === cols - 1;
+  return edge ? pick(['#16204a', '#2563eb', '#0b1026']) : pick(['#0b1026', '#0b1026', '#101838']);
 }
 
-export interface TransitionCell {
+const GLITCH = ['#2563eb', '#93c5fd', '#ffffff', '#0b1026', '#22d3ee'];
+const HOT = ['#22d3ee', '#60a5fa', '#ffffff', '#2563eb']; // bright "frontier" pixels
+const DARK = ['#0b1026', '#0b1026', '#101838', '#0e1430']; // settled dark pixels
+
+export interface GridCell {
   el: HTMLElement;
   r: number;
   c: number;
 }
 
-export async function launchPixelTrainTransition(
+export interface GridState {
+  el: HTMLElement;
+  cells: GridCell[];
+  rows: number;
+  cols: number;
+}
+
+export interface CoverItem {
+  x: number;
+  y: number;
+  d: number;
+  t: number;
+  n: number;
+}
+
+export interface CoverState {
+  cv: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  items: CoverItem[];
+  B: number;
+}
+
+// Overlay of small blocks covering the input rect exactly
+export function buildGrid(
+  rect: DOMRect,
+  colorFn: (r: number, c: number, rows: number, cols: number) => string
+): GridState {
+  const cols = Math.max(4, Math.round(rect.width / S));
+  const rows = Math.max(3, Math.round(rect.height / S));
+  const el = document.createElement('div');
+  el.id = 'grid';
+  el.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;z-index:40;pointer-events:none;--w:${rect.width / cols + 0.5}px;--h:${rect.height / rows + 0.5}px;`;
+
+  const cells: GridCell[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const b = document.createElement('i');
+      b.style.cssText = `position:absolute;left:${(c * rect.width) / cols}px;top:${(r * rect.height) / rows}px;width:${rect.width / cols + 0.5}px;height:${rect.height / rows + 0.5}px;background:${colorFn(r, c, rows, cols)};`;
+      el.appendChild(b);
+      cells.push({ el: b, r, c });
+    }
+  }
+  document.body.appendChild(el);
+  return { el, cells, rows, cols };
+}
+
+export async function glitch(g: GridState, frames = 5) {
+  for (let k = 0; k < frames; k++) {
+    g.cells.forEach((o) => {
+      if (Math.random() < 0.5) o.el.style.background = pick(GLITCH);
+    });
+    await wait(70);
+  }
+}
+
+// Blocks dissolve from one look to the other with random stagger
+export async function morph(
+  g: GridState,
+  colorFn: (r: number, c: number, rows: number, cols: number) => string
+) {
+  g.cells.forEach((o) => {
+    o.el.style.transition = `background ${rnd(120, 260)}ms ease ${rnd(0, 220)}ms`;
+    o.el.style.background = colorFn(o.r, o.c, g.rows, g.cols);
+  });
+  await wait(500);
+}
+
+// ---------- Full-screen pixel cover (canvas) ----------
+
+// One item per block, with its distance (0..1) from the input rectangle
+export function makeCover(rect: DOMRect): CoverState {
+  const W = window.innerWidth,
+    H = window.innerHeight;
+  const B = Math.max(12, Math.ceil(Math.sqrt((W * H) / 9000))); // chunky blocks, ~9000 max
+  const cv = document.createElement('canvas');
+  cv.id = 'cover';
+  cv.width = W;
+  cv.height = H;
+  cv.style.cssText = `position:fixed;left:0;top:0;width:${W}px;height:${H}px;z-index:60;pointer-events:none;image-rendering:pixelated;`;
+  document.body.appendChild(cv);
+  const ctx = cv.getContext('2d')!;
+  const items: CoverItem[] = [];
+  let maxD = 1;
+  for (let y = 0; y < H; y += B) {
+    for (let x = 0; x < W; x += B) {
+      const cx = x + B / 2,
+        cy = y + B / 2;
+      const dx = Math.max(rect.left - cx, 0, cx - rect.right);
+      const dy = Math.max(rect.top - cy, 0, cy - rect.bottom);
+      const d = Math.hypot(dx, dy);
+      if (d > maxD) maxD = d;
+      items.push({ x, y, d, t: 0, n: 0 });
+    }
+  }
+  items.forEach((o) => {
+    o.n = o.d / maxD;
+  });
+  return { cv, ctx, items, B };
+}
+
+// Runs through items in order of their .t (ms); calls draw() for each; resolves when done
+export function play(
+  c: CoverState,
+  ms: number,
+  setT: (o: CoverItem) => number,
+  draw: (o: CoverItem, first: boolean) => void,
+  hotMs = 0
+): Promise<void> {
+  c.items.forEach((o) => {
+    o.t = setT(o) * ms;
+  });
+  const list = c.items.slice().sort((a, b) => a.t - b.t);
+  return new Promise((res) => {
+    const t0 = performance.now();
+    let i = 0;
+    const hot: { o: CoverItem; at: number }[] = [];
+    function frame() {
+      const now = performance.now() - t0;
+      while (i < list.length && list[i].t <= now) {
+        draw(list[i], true);
+        hot.push({ o: list[i], at: now });
+        i++;
+      }
+      while (hot.length && now - hot[0].at > hotMs) {
+        draw(hot.shift()!.o, false);
+      }
+      if (i >= list.length && !hot.length) res();
+      else requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  });
+}
+
+export const paint = (c: CoverState, o: CoverItem, color: string) => {
+  c.ctx.fillStyle = color;
+  c.ctx.fillRect(o.x, o.y, c.B, c.B);
+};
+
+// Pixels spread across the page from the input, in bright colours that settle to dark
+export const spreadIn = (c: CoverState, ms: number) =>
+  play(
+    c,
+    ms,
+    (o) => o.n * 0.85 + Math.random() * 0.15,
+    (o, first) => paint(c, o, first ? pick(HOT) : pick(DARK)),
+    220
+  );
+
+// Pixels vanish and uncover what is underneath (outward from the input = reveal the game)
+export const eraseOut = (c: CoverState, ms: number) =>
+  play(
+    c,
+    ms,
+    (o) => o.n * 0.8 + Math.random() * 0.2,
+    (o, first) => {
+      if (first) c.ctx.clearRect(o.x, o.y, c.B, c.B);
+    },
+    0
+  );
+
+// Random dissolve that covers the page
+export const coverRandom = (c: CoverState, ms: number) =>
+  play(
+    c,
+    ms,
+    () => Math.random(),
+    (o, first) => paint(c, o, first ? pick(HOT) : pick(DARK)),
+    160
+  );
+
+// Pixels retreat toward the input (far ones vanish first)
+export const eraseToward = (c: CoverState, ms: number) =>
+  play(
+    c,
+    ms,
+    (o) => (1 - o.n) * 0.8 + Math.random() * 0.2,
+    (o, first) => {
+      if (first) c.ctx.clearRect(o.x, o.y, c.B, c.B);
+    },
+    0
+  );
+
+export async function launchPixelTransition(
   inputEl: HTMLElement,
   gameEl: HTMLElement,
   onComplete: () => void
 ): Promise<void> {
-  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const rect = inputEl.getBoundingClientRect();
 
-  if (prefersReduced) {
-    gameEl.style.display = 'flex';
-    gameEl.style.clipPath = 'inset(0 0 0 0)';
-    gameEl.style.opacity = '1';
+  if (reduce) {
+    inputEl.style.visibility = 'hidden';
+    gameEl.classList.add('on');
     onComplete();
     return;
   }
 
-  const rect = inputEl.getBoundingClientRect();
-  const cols = Math.round(rect.width / S);
-  const rows = Math.max(5, Math.round(rect.height / S));
-  const W = window.innerWidth;
-  const H = window.innerHeight;
-
-  // 1. Create pixel block container
-  const trainEl = document.createElement('div');
-  trainEl.id = 'train-transition';
-  trainEl.style.cssText = `position:fixed;z-index:9999;pointer-events:none;left:${rect.left}px;top:${rect.top}px;width:${cols * S}px;height:${rows * S}px;`;
-
-  const cells: TransitionCell[] = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const el = document.createElement('i');
-      el.style.cssText = `position:absolute;width:${S}px;height:${S}px;left:${c * S}px;top:${r * S}px;background:${inputColor(r, c, rows, cols)};`;
-      trainEl.appendChild(el);
-      cells.push({ el, r, c });
-    }
-  }
-
-  document.body.appendChild(trainEl);
+  // 1) The input turns into pixel blocks, glitches, then turns dark
+  const grid = buildGrid(rect, inputColor);
   inputEl.style.visibility = 'hidden';
-  inputEl.blur();
 
-  // 2. Glitch flicker (4 frames of 70ms)
-  const glitchColors = ['#3aa0e0', '#93c5fd', '#ffffff', '#14122e', '#ffd445'];
-  for (let k = 0; k < 4; k++) {
-    cells.forEach((o) => {
-      if (Math.random() < 0.5) {
-        o.el.style.background = glitchColors[Math.floor(rnd(0, glitchColors.length))];
-      }
-    });
-    await wait(70);
-  }
+  await glitch(grid, 5);
+  await morph(grid, gameColor);
 
-  // 3. Blocks fall to bottom of screen and land as a PIXEL TRAIN
-  const dy = H - 28 - rows * S - rect.top;
-  const fallAnims = cells.map((o) =>
-    o.el.animate(
-      [
-        { transform: 'translate(0,0)' },
-        { transform: `translate(${rnd(-12, 12)}px, ${dy}px)`, offset: 0.8 },
-        { transform: `translate(0, ${dy - rnd(6, 18)}px)`, offset: 0.9 },
-        { transform: `translate(0, ${dy}px)` },
-      ],
-      {
-        duration: 650,
-        delay: rnd(0, 300) + o.c * 3,
-        easing: 'cubic-bezier(.5, 0, .9, .6)',
-        fill: 'forwards',
-      }
-    ).finished
-  );
+  // 2) Pixels SPREAD across the whole page, starting from the input
+  const cover = makeCover(rect);
+  await spreadIn(cover, 1000);
+  gameEl.classList.add('on'); // game is now ready, hidden behind the pixels
+  grid.el.remove();
 
-  await Promise.all(fallAnims);
+  // 3) The pixels dissolve outward and uncover the game
+  await eraseOut(cover, 800);
+  cover.cv.remove();
 
-  // Turn blocks into train colors
-  cells.forEach((o) => {
-    o.el.style.background = trainColor(o.r, o.c, rows, cols);
-  });
-  await wait(150);
-
-  // 4. Train chugs off right while game screen rises via clip-path wipe
-  gameEl.style.display = 'flex';
-  const gameWipe = gameEl.animate(
-    [
-      { clipPath: 'inset(100% 0 0 0)' },
-      { clipPath: 'inset(0 0 0 0)' },
-    ],
-    {
-      duration: 1100,
-      delay: 150,
-      easing: 'cubic-bezier(.22, 1, .36, 1)',
-      fill: 'forwards',
-    }
-  );
-
-  trainEl.animate(
-    [
-      { transform: 'translateX(0)' },
-      { transform: 'translateX(-14px)', offset: 0.12 },
-      { transform: `translateX(${W - rect.left + 50}px)` },
-    ],
-    {
-      duration: 1500,
-      easing: 'cubic-bezier(.6, 0, .9, .5)',
-      fill: 'forwards',
-    }
-  );
-
-  // Wheels bounce micro-animation
-  cells.forEach((o) => {
-    if (o.r === rows - 1 || o.r === rows - 2) {
-      o.el.animate(
-        [
-          { transform: `translate(0, ${dy}px)` },
-          { transform: `translate(0, ${dy - 2}px)` },
-          { transform: `translate(0, ${dy}px)` },
-        ],
-        { duration: 160, iterations: 10 }
-      );
-    }
-  });
-
-  await gameWipe.finished;
-  await wait(300);
-
-  trainEl.remove();
   onComplete();
 }
 
-export async function collapsePixelTrainTransition(
+export async function collapsePixelTransition(
   inputEl: HTMLElement,
   gameEl: HTMLElement,
   onComplete: () => void
 ): Promise<void> {
-  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const rect = inputEl.getBoundingClientRect();
 
-  if (prefersReduced) {
-    gameEl.style.display = 'none';
+  if (reduce) {
+    gameEl.classList.remove('on');
     inputEl.style.visibility = '';
     onComplete();
     return;
   }
 
-  // 1. Game screen wipes back down with clip-path
-  const gameClose = gameEl.animate(
-    [
-      { clipPath: 'inset(0 0 0 0)' },
-      { clipPath: 'inset(100% 0 0 0)' },
-    ],
-    {
-      duration: 900,
-      easing: 'cubic-bezier(.22, 1, .36, 1)',
-      fill: 'forwards',
-    }
-  );
+  // 1) Pixels dissolve over the whole game
+  const cover = makeCover(rect);
+  await coverRandom(cover, 500);
+  gameEl.classList.remove('on');
+  const grid = buildGrid(rect, gameColor); // dark blocks wait under the cover, exactly at the input
 
-  await gameClose.finished;
-  gameEl.style.display = 'none';
+  // 2) Pixels retreat toward the input position
+  await eraseToward(cover, 800);
+  cover.cv.remove();
 
-  // 2. Blocks fly back up from bottom and re-form original password input
-  const rect = inputEl.getBoundingClientRect();
-  const cols = Math.round(rect.width / S);
-  const rows = Math.max(5, Math.round(rect.height / S));
-  const H = window.innerHeight;
-  const dy = H - 28 - rows * S - rect.top;
+  // 3) The remaining blocks glitch and dissolve back into the plain input
+  await glitch(grid, 4);
+  await morph(grid, inputColor);
+  grid.el.remove();
 
-  const reverseTrainEl = document.createElement('div');
-  reverseTrainEl.id = 'train-transition-reverse';
-  reverseTrainEl.style.cssText = `position:fixed;z-index:9999;pointer-events:none;left:${rect.left}px;top:${rect.top}px;width:${cols * S}px;height:${rows * S}px;`;
-
-  const cells: TransitionCell[] = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const el = document.createElement('i');
-      el.style.cssText = `position:absolute;width:${S}px;height:${S}px;left:${c * S}px;top:${r * S}px;background:${trainColor(r, c, rows, cols)};transform:translate(0, ${dy}px);`;
-      reverseTrainEl.appendChild(el);
-      cells.push({ el, r, c });
-    }
-  }
-
-  document.body.appendChild(reverseTrainEl);
-
-  const riseAnims = cells.map((o) =>
-    o.el.animate(
-      [
-        { transform: `translate(0, ${dy}px)` },
-        { transform: `translate(${rnd(-8, 8)}px, ${dy * 0.3}px)`, offset: 0.6 },
-        { transform: 'translate(0, -6px)', offset: 0.88 },
-        { transform: 'translate(0, 0)' },
-      ],
-      {
-        duration: 650,
-        delay: rnd(0, 200) + (cols - o.c) * 3,
-        easing: 'cubic-bezier(.22, 1, .36, 1)',
-        fill: 'forwards',
-      }
-    ).finished
-  );
-
-  await Promise.all(riseAnims);
-
-  // 3. Verified pulse: turn green/white
-  cells.forEach((o) => {
-    const isEdge = o.r === 0 || o.c === 0 || o.r === rows - 1 || o.c === cols - 1;
-    o.el.style.background = isEdge ? '#4ade80' : '#ffffff';
-  });
-
-  await wait(200);
-
-  reverseTrainEl.remove();
   inputEl.style.visibility = '';
   onComplete();
 }

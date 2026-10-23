@@ -68,13 +68,19 @@ img { image-rendering: pixelated; }
 }
 .play-again:hover { color: #2980c0; }
 
-/* ===== GAME OVERLAY ===== */
+/* ===== GAME OVERLAY (hidden until .on, revealed by canvas pixel dissolve) ===== */
 .game-overlay {
-  position: fixed; inset: 0; z-index: 1000; overflow: hidden;
+  position: fixed; inset: 0; z-index: 50; overflow: hidden;
   display: none; background: #000;
-  clip-path: inset(100% 0 0 0);
 }
 .game-overlay.on { display: block; }
+
+/* Pixel block grid that sits exactly over the input (pixelate / de-pixelate effect) */
+#grid { position: fixed; z-index: 40; pointer-events: none; }
+#grid i { position: absolute; width: var(--w); height: var(--h); }
+
+/* Full-screen pixel canvas: blocks spread across the page (open) and retreat to the input (close) */
+#cover { position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none; image-rendering: pixelated; }
 
 /* ===== WARNING BANNER ===== */
 .warning-banner {
