@@ -6,13 +6,15 @@ import { sound } from '../game/audio';
 export interface Passenger {
   id: number;
   isRobot: boolean;
-  x: number; // 40 - 1200
-  y: number; // 590 - 680
+  x: number; // 70 - 1180
+  y: number; // 590 - 675
   vx: number;
   vy: number;
   speed: number;
   directionTimer: number;
+  changeInterval: number;
   pauseTimer: number;
+  timeSinceLastPause: number;
   wobblePhase: number;
   caught: boolean;
   speechText: string | null;
@@ -59,22 +61,56 @@ export const spotRobotsGame: GameDefinition<SpotRobotsPuzzle> = {
     const robotCount = 3;
     const palette = PALETTES[era] || PALETTES.present;
 
+    const ROBOT_DIRS = [
+      { vx: 40, vy: 0 },
+      { vx: -40, vy: 0 },
+      { vx: 0, vy: 35 },
+      { vx: 0, vy: -35 },
+    ];
+
     const passengers: Passenger[] = [];
     for (let i = 0; i < total; i++) {
       const isRobot = i < robotCount;
-      const x = 80 + (i * 95) % 1000 + (rng() * 40 - 20);
-      const y = 595 + (i * 25) % 80;
+      const x = 90 + ((i * 95) % 980) + (rng() * 40 - 20);
+      const y = 595 + ((i * 25) % 75);
+
+      let vx = 0;
+      let vy = 0;
+      let speed = 40;
+      const directionTimer = rng() * 1.8; // staggered initial timers so each changes direction at different moments
+      let pauseTimer = 0;
+      const changeInterval = 1.6 + rng() * 2.2;
+      const timeSinceLastPause = rng() * 1.5;
+
+      if (isRobot) {
+        // Robots start moving in one of the 4 cardinal directions
+        const d = ROBOT_DIRS[Math.floor(rng() * ROBOT_DIRS.length)];
+        vx = d.vx;
+        vy = d.vy;
+        speed = 40;
+        pauseTimer = 0; // robots never pause
+      } else {
+        // Humans start moving at a random angle and organic speed
+        speed = 22 + rng() * 23;
+        const angle = rng() * Math.PI * 2;
+        vx = Math.cos(angle) * speed;
+        vy = Math.sin(angle) * (speed * 0.4);
+        // Some humans start paused, others walking
+        pauseTimer = rng() < 0.4 ? 0.6 + rng() * 0.8 : 0;
+      }
 
       passengers.push({
         id: i,
         isRobot,
         x,
         y,
-        vx: isRobot ? 40 : 25,
-        vy: 0,
-        speed: isRobot ? 40 : 25,
-        directionTimer: 0,
-        pauseTimer: 0,
+        vx,
+        vy,
+        speed,
+        directionTimer,
+        changeInterval,
+        pauseTimer,
+        timeSinceLastPause,
         wobblePhase: rng() * Math.PI * 2,
         caught: false,
         speechText: null,
@@ -94,106 +130,164 @@ export const spotRobotsGame: GameDefinition<SpotRobotsPuzzle> = {
   isSolvable: (p: SpotRobotsPuzzle) => p.robotCount > 0,
 
   Component: function SpotRobotsComponent({ puzzle, phase, api, timeLeft }) {
-    const [passengers, setPassengers] = useState<Passenger[]>(puzzle.passengers);
     const [caughtCount, setCaughtCount] = useState(0);
+    const passengersRef = useRef<Passenger[]>([]);
+    const domRefs = useRef<Record<number, HTMLDivElement | null>>({});
+    const speechRefs = useRef<Record<number, HTMLDivElement | null>>({});
+    const stampRefs = useRef<Record<number, HTMLDivElement | null>>({});
     const lockoutRef = useRef(false);
     const animRef = useRef<number>(0);
+    const currentPuzzleRef = useRef<any>(null);
+
+    // Initialize or reset ONLY when puzzle genuinely changes (never on 1s timer ticks!)
+    useEffect(() => {
+      if (currentPuzzleRef.current === puzzle) return;
+      currentPuzzleRef.current = puzzle;
+
+      passengersRef.current = puzzle.passengers.map((p) => ({
+        ...p,
+        caught: false,
+        speechTimer: 0,
+      }));
+      setCaughtCount(0);
+      lockoutRef.current = false;
+      api.setStatus(`${puzzle.robotCount} robots disguised on platform`);
+
+      // Reset DOM elements directly so new round displays cleanly
+      puzzle.passengers.forEach((p) => {
+        const el = domRefs.current[p.id];
+        if (el) {
+          el.classList.remove('robot-caught');
+          el.style.left = `${(p.x / 1280) * 100}%`;
+          el.style.top = `${(p.y / 720) * 100}%`;
+          el.style.transform = `translate(-50%, -100%) ${p.vx < 0 ? 'scaleX(-1)' : 'scaleX(1)'}`;
+          el.style.zIndex = String(Math.round(p.y));
+        }
+        const stEl = stampRefs.current[p.id];
+        if (stEl) stEl.style.display = 'none';
+        const spEl = speechRefs.current[p.id];
+        if (spEl) spEl.style.display = 'none';
+      });
+    }, [puzzle, api]);
 
     const robotsRemaining = puzzle.robotCount - caughtCount;
-
-    // 15s Hint: brighter eye glow
     const isHintActive = timeLeft <= 15 && timeLeft > 13;
 
-    // Animation Loop: movement update
+    // High performance continuous physics loop with zero React re-render overhead
     useEffect(() => {
       if (phase !== 'PLAYING') return;
 
       let lastTime = performance.now();
 
       const loop = (nowTime: number) => {
-        const dt = Math.min((nowTime - lastTime) / 1000, 0.1);
+        const dt = Math.min((nowTime - lastTime) / 1000, 0.05);
         lastTime = nowTime;
 
-        setPassengers((prev) =>
-          prev.map((p) => {
-            if (p.caught) return p;
+        passengersRef.current.forEach((p) => {
+          if (p.caught) return;
 
-            let nextX = p.x;
-            let nextY = p.y;
-            let nextVx = p.vx;
-            let nextVy = p.vy;
-            let nextSpeed = p.speed;
-            let nextDirTimer = p.directionTimer + dt;
-            let nextPauseTimer = p.pauseTimer - dt;
-            let nextSpeechTimer = p.speechTimer - dt;
-            let nextSpeech = nextSpeechTimer > 0 ? p.speechText : null;
+          let nextX = p.x;
+          let nextY = p.y;
+          let nextVx = p.vx;
+          let nextVy = p.vy;
+          let nextSpeed = p.speed;
+          let nextDirTimer = p.directionTimer + dt;
+          let nextPauseTimer = p.pauseTimer - dt;
+          let nextSpeechTimer = p.speechTimer - dt;
+          let nextTimeSincePause = p.timeSinceLastPause + dt;
 
-            if (p.isRobot) {
-              // Robot movement: constant 40 px/s, strict 90 degree turns
-              if (nextDirTimer > 2.0) {
+          if (p.isRobot) {
+            // Strict robot movement: constant speed 40 px/s, strict 90 degree turns every 2.0s
+            if (nextDirTimer > 2.0) {
+              nextDirTimer = 0;
+              if (Math.abs(nextVx) > 0) {
+                nextVx = 0;
+                nextVy = Math.random() < 0.5 ? 35 : -35;
+              } else {
+                nextVy = 0;
+                nextVx = Math.random() < 0.5 ? 40 : -40;
+              }
+            }
+
+            nextX += nextVx * dt;
+            nextY += nextVy * dt;
+
+            // Boundaries: bounce strictly along perpendicular or reverse
+            if (nextX < 70) { nextX = 70; nextVx = 40; nextVy = 0; }
+            if (nextX > 1180) { nextX = 1180; nextVx = -40; nextVy = 0; }
+            if (nextY < 590) { nextY = 590; nextVy = 35; nextVx = 0; }
+            if (nextY > 675) { nextY = 675; nextVy = -35; nextVx = 0; }
+          } else {
+            // Organic human movement: variable speed, random angles, frequent pauses
+            if (p.pauseTimer > 0 && nextPauseTimer <= 0) {
+              // Just woke up from pause! Pick a fresh direction and speed
+              nextSpeed = 22 + Math.random() * 23;
+              const angle = Math.random() * Math.PI * 2;
+              nextVx = Math.cos(angle) * nextSpeed;
+              nextVy = Math.sin(angle) * (nextSpeed * 0.4);
+              nextDirTimer = 0;
+              p.changeInterval = 1.6 + Math.random() * 2.2;
+              nextTimeSincePause = 0;
+            } else if (nextPauseTimer <= 0) {
+              // Walking: check if direction change or forced pause needed
+              const mustPause = nextTimeSincePause >= 2.8;
+
+              if (nextDirTimer > p.changeInterval || mustPause) {
                 nextDirTimer = 0;
-                // Switch axis: if moving horizontal, go vertical
-                if (Math.abs(nextVx) > 0) {
-                  nextVx = 0;
-                  nextVy = Math.random() < 0.5 ? 40 : -40;
+                p.changeInterval = 1.6 + Math.random() * 2.2;
+
+                // 50% chance to pause (or 100% if mustPause per spec)
+                if (Math.random() < 0.5 || mustPause) {
+                  nextPauseTimer = 0.6 + Math.random() * 0.9;
+                  nextTimeSincePause = 0;
                 } else {
-                  nextVy = 0;
-                  nextVx = Math.random() < 0.5 ? 40 : -40;
+                  nextSpeed = 22 + Math.random() * 23;
+                  const angle = Math.random() * Math.PI * 2;
+                  nextVx = Math.cos(angle) * nextSpeed;
+                  nextVy = Math.sin(angle) * (nextSpeed * 0.4);
                 }
               }
 
               nextX += nextVx * dt;
               nextY += nextVy * dt;
 
-              // Boundary bounces
-              if (nextX < 60) { nextX = 60; nextVx = 40; nextVy = 0; }
-              if (nextX > 1180) { nextX = 1180; nextVx = -40; nextVy = 0; }
-              if (nextY < 590) { nextY = 590; nextVy = 40; nextVx = 0; }
-              if (nextY > 675) { nextY = 675; nextVy = -40; nextVx = 0; }
-            } else {
-              // Human movement: organic, variable speeds, frequent pauses
-              if (nextPauseTimer > 0) {
-                // Pausing
-              } else {
-                if (nextDirTimer > 2.5) {
-                  nextDirTimer = 0;
-                  // 50% chance to pause
-                  if (Math.random() < 0.5) {
-                    nextPauseTimer = 1.0;
-                  } else {
-                    nextSpeed = 20 + Math.random() * 25;
-                    const angle = Math.random() * Math.PI * 2;
-                    nextVx = Math.cos(angle) * nextSpeed;
-                    nextVy = Math.sin(angle) * (nextSpeed * 0.4); // flatter platform y
-                  }
-                }
-
-                nextX += nextVx * dt;
-                nextY += nextVy * dt;
-
-                // Soft boundaries
-                if (nextX < 60) { nextX = 60; nextVx = Math.abs(nextVx); }
-                if (nextX > 1180) { nextX = 1180; nextVx = -Math.abs(nextVx); }
-                if (nextY < 590) { nextY = 590; nextVy = Math.abs(nextVy); }
-                if (nextY > 675) { nextY = 675; nextVy = -Math.abs(nextVy); }
-              }
+              // Soft bounce towards center
+              if (nextX < 70) { nextX = 70; nextVx = Math.abs(nextVx) || 24; }
+              if (nextX > 1180) { nextX = 1180; nextVx = -Math.abs(nextVx) || -24; }
+              if (nextY < 590) { nextY = 590; nextVy = Math.abs(nextVy) || 12; }
+              if (nextY > 675) { nextY = 675; nextVy = -Math.abs(nextVy) || -12; }
             }
+          }
 
-            return {
-              ...p,
-              x: nextX,
-              y: nextY,
-              vx: nextVx,
-              vy: nextVy,
-              speed: nextSpeed,
-              directionTimer: nextDirTimer,
-              pauseTimer: nextPauseTimer,
-              wobblePhase: p.wobblePhase + dt * 4,
-              speechText: nextSpeech,
-              speechTimer: Math.max(0, nextSpeechTimer),
-            };
-          })
-        );
+          p.x = nextX;
+          p.y = nextY;
+          p.vx = nextVx;
+          p.vy = nextVy;
+          p.speed = nextSpeed;
+          p.directionTimer = nextDirTimer;
+          p.pauseTimer = nextPauseTimer;
+          p.timeSinceLastPause = nextTimeSincePause;
+          p.wobblePhase += dt * 4;
+          p.speechTimer = Math.max(0, nextSpeechTimer);
+
+          // Direct DOM style update (0ms garbage collection)
+          const el = domRefs.current[p.id];
+          if (el) {
+            const wobble = !p.isRobot && p.pauseTimer <= 0 ? Math.sin(p.wobblePhase) * 2 : 0;
+            const isFacingLeft = p.vx < 0;
+            const leftPct = (p.x / 1280) * 100;
+            const topPct = ((p.y + wobble) / 720) * 100;
+            el.style.left = `${leftPct}%`;
+            el.style.top = `${topPct}%`;
+            el.style.transform = `translate(-50%, -100%) ${isFacingLeft ? 'scaleX(-1)' : 'scaleX(1)'}`;
+            el.style.zIndex = String(Math.round(p.y));
+          }
+
+          const spEl = speechRefs.current[p.id];
+          if (spEl) {
+            spEl.style.display = p.speechTimer > 0 ? 'block' : 'none';
+          }
+        });
 
         animRef.current = requestAnimationFrame(loop);
       };
@@ -202,17 +296,25 @@ export const spotRobotsGame: GameDefinition<SpotRobotsPuzzle> = {
       return () => cancelAnimationFrame(animRef.current);
     }, [phase]);
 
-    const handlePassengerClick = (p: Passenger) => {
-      if (phase !== 'PLAYING' || p.caught || lockoutRef.current) return;
+    const handlePassengerClick = (pId: number) => {
+      if (phase !== 'PLAYING' || lockoutRef.current) return;
+
+      const p = passengersRef.current.find((item) => item.id === pId);
+      if (!p || p.caught) return;
 
       if (p.isRobot) {
+        p.caught = true;
         sound.playRulePass();
-        setPassengers((prev) =>
-          prev.map((item) => (item.id === p.id ? { ...item, caught: true } : item))
-        );
+
+        // Mark DOM caught
+        const el = domRefs.current[pId];
+        if (el) el.classList.add('robot-caught');
+        const stEl = stampRefs.current[pId];
+        if (stEl) stEl.style.display = 'block';
 
         const nextCaught = caughtCount + 1;
         setCaughtCount(nextCaught);
+        api.setStatus(`${puzzle.robotCount - nextCaught} robots remaining`);
 
         if (nextCaught >= puzzle.robotCount) {
           sound.playVictoryFanfare();
@@ -223,15 +325,11 @@ export const spotRobotsGame: GameDefinition<SpotRobotsPuzzle> = {
         sound.playError();
         api.triggerShake();
         lockoutRef.current = true;
-        setTimeout(() => (lockoutRef.current = false), 500);
+        setTimeout(() => (lockoutRef.current = false), 450);
 
-        setPassengers((prev) =>
-          prev.map((item) =>
-            item.id === p.id
-              ? { ...item, speechText: 'Hey! Im human!', speechTimer: 1.2 }
-              : item
-          )
-        );
+        p.speechTimer = 1.2;
+        const spEl = speechRefs.current[pId];
+        if (spEl) spEl.style.display = 'block';
 
         const livesLeft = api.loseLife();
         if (livesLeft <= 0) {
@@ -248,41 +346,48 @@ export const spotRobotsGame: GameDefinition<SpotRobotsPuzzle> = {
         </div>
 
         {/* Passengers on the Platform floor */}
-        {passengers.map((p) => {
-          const wobble = !p.isRobot && p.pauseTimer <= 0 ? Math.sin(p.wobblePhase) * 2 : 0;
-          const isFacingLeft = p.vx < 0;
-
-          // Scaled coordinates relative to 1280x720 space
-          const leftPercent = (p.x / 1280) * 100;
-          const topPercent = ((p.y + wobble) / 720) * 100;
-
+        {puzzle.passengers.map((p) => {
           return (
             <div
               key={p.id}
-              className={`passenger-sprite-hitbox ${p.caught ? 'robot-caught' : ''}`}
-              onClick={() => handlePassengerClick(p)}
+              ref={(el) => {
+                domRefs.current[p.id] = el;
+                if (el && !el.dataset.initialized) {
+                  el.dataset.initialized = 'true';
+                  el.style.left = `${(p.x / 1280) * 100}%`;
+                  el.style.top = `${(p.y / 720) * 100}%`;
+                  el.style.transform = `translate(-50%, -100%) ${p.vx < 0 ? 'scaleX(-1)' : 'scaleX(1)'}`;
+                  el.style.zIndex = String(Math.round(p.y));
+                }
+              }}
+              className="passenger-sprite-hitbox"
+              onClick={() => handlePassengerClick(p.id)}
               style={{
                 position: 'absolute',
-                left: `${leftPercent}%`,
-                top: `${topPercent}%`,
-                transform: `translate(-50%, -100%) ${isFacingLeft ? 'scaleX(-1)' : 'scaleX(1)'}`,
-                cursor: p.caught ? 'default' : 'pointer',
-                zIndex: Math.round(p.y),
+                cursor: 'pointer',
               }}
             >
-              {/* Speech bubble */}
-              {p.speechText && (
-                <div className="passenger-speech-bubble">
-                  {p.speechText}
-                </div>
-              )}
+              {/* Speech bubble for humans */}
+              <div
+                ref={(el) => {
+                  speechRefs.current[p.id] = el;
+                }}
+                className="passenger-speech-bubble"
+                style={{ display: 'none' }}
+              >
+                Hey! I'm human!
+              </div>
 
               {/* Bot Caught Stamp */}
-              {p.caught && (
-                <div className="bot-caught-stamp">
-                  BOT ✓
-                </div>
-              )}
+              <div
+                ref={(el) => {
+                  stampRefs.current[p.id] = el;
+                }}
+                className="bot-caught-stamp"
+                style={{ display: 'none' }}
+              >
+                BOT ✓
+              </div>
 
               {/* Pixel Person Character Sprite */}
               <div className="pixel-character">

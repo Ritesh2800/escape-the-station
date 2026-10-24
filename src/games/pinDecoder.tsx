@@ -48,14 +48,6 @@ const COLOR_PALETTES = [
 
 const ROMAN_NUMERALS = ['0', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'];
 
-const DECOY_TEXTS = [
-  { title: 'MIND THE GAP', sub: 'Platform 07' },
-  { title: 'NO SMOKING', sub: 'Quiet Carriage' },
-  { title: 'FIRST CLASS', sub: 'Priority Seating' },
-  { title: 'LUGGAGE VAN', sub: 'Baggage Only' },
-  { title: 'DINING CAR', sub: 'Refreshments' },
-];
-
 const TRAIN_DATA = {
   past: {
     engine: enginePast,
@@ -93,10 +85,10 @@ export const pinDecoderGame: GameDefinition<PinDecoderPuzzle> = {
   defaultLives: 3,
   usesTrain: true,
   stationBoardText: (p) => p.legendText || 'STATION 07 · DEPARTURE GATE',
-  goal: () => 'Find the 4 carriage clues to crack the 4-digit PIN.',
+  goal: () => 'Inspect each of the 4 carriages for each digit of the 4-digit PIN.',
 
   generate: (rng: () => number, era: Era): PinDecoderPuzzle => {
-    // Generate 4 random digits
+    // Generate 4 random digits (0..9)
     const digits = [
       randomInt(rng, 0, 9),
       randomInt(rng, 0, 9),
@@ -104,118 +96,117 @@ export const pinDecoderGame: GameDefinition<PinDecoderPuzzle> = {
       randomInt(rng, 0, 9),
     ];
 
-    // Template pool guaranteeing at least 3 distinct templates
-    const templates: Array<'ARITH' | 'COUNT' | 'LEGEND' | 'POSITION' | 'ERA_STYLE'> = [
-      'ARITH',
-      'COUNT',
-      'LEGEND',
-      'ERA_STYLE',
-    ];
-    // Shuffle template assignment
-    const shuffledTemplates = shuffleArray(rng, templates);
+    // Color for the color coach (Carriage 3)
+    const chosenColor = shuffleArray(rng, COLOR_PALETTES)[0];
+    const legendText = `${chosenColor.name} COACH = ${digits[2]} · DEPARTURE GATE`;
 
-    // Color legend generator
-    const chosenColors = shuffleArray(rng, COLOR_PALETTES).slice(0, 4);
-    const legendValues = shuffleArray(rng, [1, 2, 3, 4, 5, 6, 7, 8, 9]).slice(0, 4);
-    const legend: Record<string, number> = {};
-    chosenColors.forEach((c, i) => {
-      legend[c.name] = legendValues[i];
-    });
-    const legendText = chosenColors.map((c) => `${c.name}=${legend[c.name]}`).join('  ');
+    const clueCarriages: (PinClue & { isDecoy: false })[] = [];
 
-    const clueCarriages: CarriageItem[] = [];
-
-    digits.forEach((targetDigit, idx) => {
-      let t = shuffledTemplates[idx];
-
-      // Guard: COUNT template needs 2..6
-      if (t === 'COUNT' && (targetDigit < 2 || targetDigit > 6)) {
-        t = 'ARITH';
-      }
-
-      if (t === 'COUNT') {
-        clueCarriages.push({
-          isDecoy: false,
-          digitIndex: idx,
-          digit: targetDigit,
-          template: 'COUNT',
-          title: `PIN ${['①', '②', '③', '④'][idx]}: COUNT WINDOWS`,
-          sub: `${targetDigit} Windows on Coach`,
-          windowCount: targetDigit,
-        });
-      } else if (t === 'LEGEND') {
-        const colorEntry = chosenColors[idx % chosenColors.length];
-        const val = legend[colorEntry.name];
-        digits[idx] = val; // align pin digit with legend value
-        clueCarriages.push({
-          isDecoy: false,
-          digitIndex: idx,
-          digit: val,
-          template: 'LEGEND',
-          title: `PIN ${['①', '②', '③', '④'][idx]}: ${colorEntry.name} CAR`,
-          sub: 'Check Board Legend',
-          colorName: colorEntry.name,
-          colorHex: colorEntry.hex,
-        });
-      } else if (t === 'ERA_STYLE') {
-        let title = '';
-        if (era === 'past') {
-          title = `PIN ${['①', '②', '③', '④'][idx]}: ${ROMAN_NUMERALS[targetDigit] || targetDigit}`;
-        } else if (era === 'future') {
-          title = `PIN ${['①', '②', '③', '④'][idx]}: BINARY ${targetDigit.toString(2).padStart(4, '0')}`;
-        } else {
-          title = `PIN ${['①', '②', '③', '④'][idx]}: (${targetDigit + 2} - 2)`;
-        }
-        clueCarriages.push({
-          isDecoy: false,
-          digitIndex: idx,
-          digit: targetDigit,
-          template: 'ERA_STYLE',
-          title,
-          sub: era === 'past' ? 'Roman Numeral' : era === 'future' ? 'Binary Code' : 'Calculated Value',
-        });
-      } else {
-        // ARITH
-        const a = randomInt(rng, 1, 4);
-        const b = targetDigit - a >= 0 ? targetDigit - a : 0;
-        clueCarriages.push({
-          isDecoy: false,
-          digitIndex: idx,
-          digit: targetDigit,
-          template: 'ARITH',
-          title: `PIN ${['①', '②', '③', '④'][idx]}: (${a} + ${b})`,
-          sub: 'Solve Formula',
-        });
-      }
+    // CARRIAGE 1 -> DIGIT 1 (Simple addition)
+    const d0 = digits[0];
+    let formula0 = '';
+    if (d0 === 0) {
+      formula0 = '0 + 0';
+    } else {
+      const a = randomInt(rng, 0, d0);
+      const b = d0 - a;
+      formula0 = `${a} + ${b}`;
+    }
+    clueCarriages.push({
+      isDecoy: false,
+      digitIndex: 0,
+      digit: d0,
+      template: 'ARITH',
+      title: `PIN ①: ${formula0} = ?`,
+      sub: 'Solve addition for Digit 1',
     });
 
-    // Recalculate true pin in case legend modified a digit
-    const finalPin = clueCarriages.map((c) => (!c.isDecoy ? c.digit : 0)).join('');
+    // CARRIAGE 2 -> DIGIT 2 (Lit Windows Count if 1..6, else subtraction)
+    const d1 = digits[1];
+    if (d1 >= 1 && d1 <= 6) {
+      clueCarriages.push({
+        isDecoy: false,
+        digitIndex: 1,
+        digit: d1,
+        template: 'COUNT',
+        title: `PIN ②: COUNT ${d1} LIT WINDOWS`,
+        sub: 'Count illuminated windows for Digit 2',
+        windowCount: d1,
+      });
+    } else {
+      const k = randomInt(rng, 1, 3);
+      clueCarriages.push({
+        isDecoy: false,
+        digitIndex: 1,
+        digit: d1,
+        template: 'ARITH',
+        title: `PIN ②: ${d1 + k} - ${k} = ?`,
+        sub: 'Solve subtraction for Digit 2',
+      });
+    }
 
-    // Add 2 decoy carriages
-    const decoys = shuffleArray(rng, DECOY_TEXTS).slice(0, 2);
-    const decoyCarriages: CarriageItem[] = decoys.map((d) => ({
-      isDecoy: true,
-      title: d.title,
-      sub: d.sub,
-    }));
+    // CARRIAGE 3 -> DIGIT 3 (Color Legend matching Station Board)
+    const d2 = digits[2];
+    clueCarriages.push({
+      isDecoy: false,
+      digitIndex: 2,
+      digit: d2,
+      template: 'LEGEND',
+      title: `PIN ③: ${chosenColor.name} COACH`,
+      sub: `See Station Board: ${chosenColor.name} = ${d2}`,
+      colorName: chosenColor.name,
+      colorHex: chosenColor.hex,
+    });
 
-    const allCarriages = shuffleArray(rng, [...clueCarriages, ...decoyCarriages]);
+    // CARRIAGE 4 -> DIGIT 4 (Simple math or Roman/Direct code)
+    const d3 = digits[3];
+    if (d3 >= 1 && d3 <= 6 && clueCarriages[1].template !== 'COUNT') {
+      clueCarriages.push({
+        isDecoy: false,
+        digitIndex: 3,
+        digit: d3,
+        template: 'COUNT',
+        title: `PIN ④: COUNT ${d3} LIT WINDOWS`,
+        sub: 'Count illuminated windows for Digit 4',
+        windowCount: d3,
+      });
+    } else if (era === 'past' && d3 >= 1 && d3 <= 9) {
+      clueCarriages.push({
+        isDecoy: false,
+        digitIndex: 3,
+        digit: d3,
+        template: 'ERA_STYLE',
+        title: `PIN ④: ROMAN ${ROMAN_NUMERALS[d3]} (= ${d3})`,
+        sub: 'Roman Numeral for Digit 4',
+      });
+    } else {
+      const k = randomInt(rng, 1, 3);
+      clueCarriages.push({
+        isDecoy: false,
+        digitIndex: 3,
+        digit: d3,
+        template: 'ARITH',
+        title: `PIN ④: ${d3 + k} - ${k} = ?`,
+        sub: 'Solve subtraction for Digit 4',
+      });
+    }
+
+    const finalPin = digits.join('');
 
     return {
       pin: finalPin,
-      carriages: allCarriages,
-      legend,
+      carriages: clueCarriages,
       legendText,
     };
   },
 
   isSolvable: (p: PinDecoderPuzzle) => {
-    return p.pin.length === 4 && p.carriages.filter((c) => !c.isDecoy).length === 4;
+    return p.pin.length === 4 && p.carriages.length === 4 && p.carriages.every((c) => !c.isDecoy);
   },
 
   Component: function PinDecoderComponent({ puzzle, era, phase, api, timeLeft }) {
     const [inputVal, setInputVal] = useState('');
+    const [selectedSlot, setSelectedSlot] = useState<number>(0);
     const [digitStatus, setDigitStatus] = useState<('correct' | 'wrong' | null)[]>([
       null,
       null,
@@ -224,8 +215,16 @@ export const pinDecoderGame: GameDefinition<PinDecoderPuzzle> = {
     ]);
     const [activeIdx, setActiveIdx] = useState(0);
 
-    const isDeparted = timeLeft <= 6;
-    const isDeparting = timeLeft <= 8 && timeLeft > 6;
+    // Reset when puzzle changes
+    useEffect(() => {
+      setInputVal('');
+      setSelectedSlot(0);
+      setDigitStatus([null, null, null, null]);
+      setActiveIdx(0);
+    }, [puzzle]);
+
+    const isDeparted = timeLeft <= 5;
+    const isDeparting = timeLeft <= 7 && timeLeft > 5;
 
     const data = TRAIN_DATA[era] || TRAIN_DATA.present;
     const engineW = Math.round(data.engineH * data.engineAspect);
@@ -245,27 +244,55 @@ export const pinDecoderGame: GameDefinition<PinDecoderPuzzle> = {
         } else if (e.key === 'Enter') {
           e.preventDefault();
           handleSubmit();
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          setActiveIdx((prev) => {
+            const next = Math.max(0, prev - 1);
+            setSelectedSlot(next);
+            return next;
+          });
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          setActiveIdx((prev) => {
+            const next = Math.min(puzzle.carriages.length - 1, prev + 1);
+            setSelectedSlot(next);
+            return next;
+          });
         }
       };
       window.addEventListener('keydown', handleKey);
       return () => window.removeEventListener('keydown', handleKey);
-    }, [phase, inputVal]);
+    }, [phase, inputVal, selectedSlot, puzzle.pin]);
 
     const handleDigit = (d: string) => {
-      if (inputVal.length >= 4) return;
       sound.playClick(1.0 + parseInt(d, 10) * 0.05);
-      const next = inputVal + d;
-      setInputVal(next);
-      if (next.length === 4) {
-        // Auto-check on 4 digits
-        checkPin(next);
+
+      let next = inputVal;
+      if (next.length < 4) {
+        next = next + d;
+        setInputVal(next);
+        setSelectedSlot(Math.min(3, next.length));
+        if (next.length === 4) {
+          checkPin(next);
+        }
+      } else {
+        // Replace digit at selected slot
+        const chars = next.split('');
+        chars[selectedSlot] = d;
+        const replaced = chars.join('');
+        setInputVal(replaced);
+        const nextSlot = (selectedSlot + 1) % 4;
+        setSelectedSlot(nextSlot);
+        checkPin(replaced);
       }
     };
 
     const handleBackspace = () => {
       if (inputVal.length === 0) return;
       sound.playClick(0.7);
-      setInputVal(inputVal.slice(0, -1));
+      const next = inputVal.slice(0, -1);
+      setInputVal(next);
+      setSelectedSlot(next.length);
       setDigitStatus([null, null, null, null]);
     };
 
@@ -349,6 +376,7 @@ export const pinDecoderGame: GameDefinition<PinDecoderPuzzle> = {
                 marginLeft: -data.overlap,
                 flexShrink: 0,
                 cursor: 'pointer',
+                position: 'relative',
               }}
             >
               {/* Carriage Sprite */}
@@ -363,6 +391,65 @@ export const pinDecoderGame: GameDefinition<PinDecoderPuzzle> = {
                 }}
               />
 
+              {/* Physical lit windows overlay for COUNT template */}
+              {!c.isDecoy && c.windowCount && (
+                <div
+                  className="carriage-lit-windows-row"
+                  style={{
+                    position: 'absolute',
+                    top: '32%',
+                    left: '12%',
+                    right: '12%',
+                    display: 'flex',
+                    justifyContent: 'space-evenly',
+                    alignItems: 'center',
+                    zIndex: 13,
+                    pointerEvents: 'none',
+                  }}
+                >
+                  {Array.from({ length: c.windowCount }).map((_, wIdx) => (
+                    <div
+                      key={wIdx}
+                      style={{
+                        width: 28,
+                        height: 22,
+                        backgroundColor: '#ffd445',
+                        border: '2px solid #78350f',
+                        borderRadius: 3,
+                        boxShadow: '0 0 10px #ffd445, inset 0 0 4px #fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: '#78350f',
+                      }}
+                    >
+                      {wIdx + 1}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Color belt for LEGEND template */}
+              {!c.isDecoy && c.colorHex && (
+                <div
+                  className="carriage-color-band-clue"
+                  style={{
+                    position: 'absolute',
+                    bottom: 24,
+                    left: 14,
+                    right: 14,
+                    height: 8,
+                    backgroundColor: c.colorHex,
+                    boxShadow: `0 0 12px ${c.colorHex}`,
+                    borderRadius: 2,
+                    zIndex: 12,
+                    pointerEvents: 'none',
+                  }}
+                />
+              )}
+
               {/* Clue plate on carriage body */}
               <div
                 className={`carriage-clue-plate era-${era} active`}
@@ -372,10 +459,10 @@ export const pinDecoderGame: GameDefinition<PinDecoderPuzzle> = {
               >
                 <div className="plate-top-row">
                   <span className="plate-car-tag">
-                    {c.isDecoy ? 'COACH' : `CAR ${i + 1}`}
+                    CAR {i + 1} OF 4
                   </span>
                   <span className="plate-status-tag">
-                    {c.isDecoy ? 'TRANSIT' : 'CLUE'}
+                    PIN {['①', '②', '③', '④'][i]}
                   </span>
                 </div>
                 <div className="plate-clue-text">{c.title}</div>
@@ -385,48 +472,82 @@ export const pinDecoderGame: GameDefinition<PinDecoderPuzzle> = {
           ))}
         </div>
 
-        {/* Carousel slide controls */}
+        {/* Carousel slide controls & Direct Carriage Tabs */}
         <div className="train-slide-nav">
           <button
             type="button"
             className="nav-arrow-btn"
             disabled={activeIdx <= 0}
-            onClick={() => setActiveIdx(Math.max(0, activeIdx - 1))}
+            onClick={() => {
+              const prev = Math.max(0, activeIdx - 1);
+              setActiveIdx(prev);
+              setSelectedSlot(prev);
+            }}
           >
-            ◀ PREV CAR
+            ◀ PREV
           </button>
-          <span className="nav-car-index">
-            CARRIAGE {activeIdx + 1} OF {puzzle.carriages.length}
-          </span>
+
+          <div className="nav-car-pills">
+            {puzzle.carriages.map((_, idx) => {
+              const badge = ['①', '②', '③', '④'][idx];
+              const isCurrent = activeIdx === idx;
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  className={`car-select-pill ${isCurrent ? 'active' : ''}`}
+                  onClick={() => {
+                    sound.playClick(1.1);
+                    setActiveIdx(idx);
+                    setSelectedSlot(idx);
+                  }}
+                >
+                  CAR {idx + 1} {badge}
+                </button>
+              );
+            })}
+          </div>
+
           <button
             type="button"
             className="nav-arrow-btn"
             disabled={activeIdx >= puzzle.carriages.length - 1}
-            onClick={() => setActiveIdx(Math.min(puzzle.carriages.length - 1, activeIdx + 1))}
+            onClick={() => {
+              const next = Math.min(puzzle.carriages.length - 1, activeIdx + 1);
+              setActiveIdx(next);
+              setSelectedSlot(next);
+            }}
           >
-            NEXT CAR ▶
+            NEXT ▶
           </button>
         </div>
 
         {/* Floating PIN Keypad Console (Top Center) */}
         <div className="keypad-console">
-          {/* 4 Digit Boxes with Live Feedback */}
+          {/* 4 Digit Boxes with Live Feedback and Selection */}
           <div className="pin-boxes-row">
             {[0, 1, 2, 3].map((idx) => {
               const char = inputVal[idx] || '';
               const status = digitStatus[idx];
+              const isSelected = selectedSlot === idx;
               return (
                 <div
                   key={idx}
-                  className={`pin-box ${char ? 'filled' : ''} ${status || ''}`}
+                  className={`pin-box ${char ? 'filled' : ''} ${status || ''} ${isSelected ? 'selected-slot' : ''}`}
+                  onClick={() => {
+                    setSelectedSlot(idx);
+                    setActiveIdx(idx);
+                  }}
+                  style={{ cursor: 'pointer' }}
                 >
                   <span className="pin-digit-char">{char || '_'}</span>
+                  <span className="pin-box-idx">DIGIT {idx + 1}</span>
                 </div>
               );
             })}
           </div>
 
-          {/* 10-Key Pad */}
+          {/* 10-Key Pad + DEL + CHECK */}
           <div className="keypad-grid">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
               <button
@@ -440,6 +561,13 @@ export const pinDecoderGame: GameDefinition<PinDecoderPuzzle> = {
             ))}
             <button
               type="button"
+              className="keypad-key-btn del-btn"
+              onClick={handleBackspace}
+            >
+              ⌫ DEL
+            </button>
+            <button
+              type="button"
               className="keypad-key-btn zero-btn"
               onClick={() => handleDigit('0')}
             >
@@ -447,10 +575,10 @@ export const pinDecoderGame: GameDefinition<PinDecoderPuzzle> = {
             </button>
             <button
               type="button"
-              className="keypad-key-btn del-btn"
-              onClick={handleBackspace}
+              className="keypad-key-btn enter-btn"
+              onClick={handleSubmit}
             >
-              ⌫ DEL
+              ➔ OK
             </button>
           </div>
         </div>

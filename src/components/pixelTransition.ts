@@ -92,12 +92,12 @@ export function buildGrid(
   return { el, cells, rows, cols };
 }
 
-export async function glitch(g: GridState, frames = 5) {
+export async function glitch(g: GridState, frames = 3) {
   for (let k = 0; k < frames; k++) {
     g.cells.forEach((o) => {
       if (Math.random() < 0.5) o.el.style.background = pick(GLITCH);
     });
-    await wait(70);
+    await wait(50);
   }
 }
 
@@ -107,10 +107,10 @@ export async function morph(
   colorFn: (r: number, c: number, rows: number, cols: number) => string
 ) {
   g.cells.forEach((o) => {
-    o.el.style.transition = `background ${rnd(120, 260)}ms ease ${rnd(0, 220)}ms`;
+    o.el.style.transition = `background ${rnd(80, 180)}ms ease ${rnd(0, 120)}ms`;
     o.el.style.background = colorFn(o.r, o.c, g.rows, g.cols);
   });
-  await wait(500);
+  await wait(240);
 }
 
 // ---------- Full-screen pixel cover (canvas) ----------
@@ -119,7 +119,8 @@ export async function morph(
 export function makeCover(rect: DOMRect): CoverState {
   const W = window.innerWidth,
     H = window.innerHeight;
-  const B = Math.max(12, Math.ceil(Math.sqrt((W * H) / 9000))); // chunky blocks, ~9000 max
+  // Chunky pixel blocks (~2200 max for high performance and authentic chunky 8-bit feel)
+  const B = Math.max(16, Math.ceil(Math.sqrt((W * H) / 2200)));
   const cv = document.createElement('canvas');
   cv.id = 'cover';
   cv.width = W;
@@ -162,6 +163,8 @@ export function play(
     const t0 = performance.now();
     let i = 0;
     const hot: { o: CoverItem; at: number }[] = [];
+    let hotHead = 0; // O(1) queue pointer instead of expensive array shifts
+
     function frame() {
       const now = performance.now() - t0;
       while (i < list.length && list[i].t <= now) {
@@ -169,11 +172,15 @@ export function play(
         hot.push({ o: list[i], at: now });
         i++;
       }
-      while (hot.length && now - hot[0].at > hotMs) {
-        draw(hot.shift()!.o, false);
+      while (hotHead < hot.length && now - hot[hotHead].at > hotMs) {
+        draw(hot[hotHead].o, false);
+        hotHead++;
       }
-      if (i >= list.length && !hot.length) res();
-      else requestAnimationFrame(frame);
+      if (i >= list.length && hotHead >= hot.length) {
+        res();
+      } else {
+        requestAnimationFrame(frame);
+      }
     }
     requestAnimationFrame(frame);
   });
@@ -191,7 +198,7 @@ export const spreadIn = (c: CoverState, ms: number) =>
     ms,
     (o) => o.n * 0.85 + Math.random() * 0.15,
     (o, first) => paint(c, o, first ? pick(HOT) : pick(DARK)),
-    220
+    160
   );
 
 // Pixels vanish and uncover what is underneath (outward from the input = reveal the game)
@@ -213,7 +220,7 @@ export const coverRandom = (c: CoverState, ms: number) =>
     ms,
     () => Math.random(),
     (o, first) => paint(c, o, first ? pick(HOT) : pick(DARK)),
-    160
+    120
   );
 
 // Pixels retreat toward the input (far ones vanish first)
@@ -247,17 +254,17 @@ export async function launchPixelTransition(
   const grid = buildGrid(rect, inputColor);
   inputEl.style.visibility = 'hidden';
 
-  await glitch(grid, 5);
+  await glitch(grid, 3);
   await morph(grid, gameColor);
 
   // 2) Pixels SPREAD across the whole page, starting from the input
   const cover = makeCover(rect);
-  await spreadIn(cover, 1000);
+  await spreadIn(cover, 480);
   gameEl.classList.add('on'); // game is now ready, hidden behind the pixels
   grid.el.remove();
 
   // 3) The pixels dissolve outward and uncover the game
-  await eraseOut(cover, 800);
+  await eraseOut(cover, 420);
   cover.cv.remove();
 
   onComplete();
@@ -280,16 +287,16 @@ export async function collapsePixelTransition(
 
   // 1) Pixels dissolve over the whole game
   const cover = makeCover(rect);
-  await coverRandom(cover, 500);
+  await coverRandom(cover, 360);
   gameEl.classList.remove('on');
   const grid = buildGrid(rect, gameColor); // dark blocks wait under the cover, exactly at the input
 
   // 2) Pixels retreat toward the input position
-  await eraseToward(cover, 800);
+  await eraseToward(cover, 400);
   cover.cv.remove();
 
   // 3) The remaining blocks glitch and dissolve back into the plain input
-  await glitch(grid, 4);
+  await glitch(grid, 3);
   await morph(grid, inputColor);
   grid.el.remove();
 

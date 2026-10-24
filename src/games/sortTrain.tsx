@@ -170,6 +170,15 @@ export const sortTrainGame: GameDefinition<SortTrainPuzzle> = {
 
     const spec = TRAIN_SPEC[era] || TRAIN_SPEC.present;
 
+    // Reset when puzzle changes
+    useEffect(() => {
+      passedRef.current = false;
+      setIsDeparting(false);
+      setCurrentOrder(puzzle.initialOrder);
+      setSelectedIdx(null);
+      setDragOverIdx(null);
+    }, [puzzle]);
+
     // Check correct positions
     const correctCount = currentOrder.filter(
       (c, i) => c.uid === puzzle.targetOrder[i]?.uid
@@ -202,6 +211,29 @@ export const sortTrainGame: GameDefinition<SortTrainPuzzle> = {
       },
       [currentOrder]
     );
+
+    // Keyboard support: 1-4 to select / swap, arrow keys to move selected
+    useEffect(() => {
+      if (phase !== 'PLAYING' || isDeparting) return;
+      const handleKey = (e: KeyboardEvent) => {
+        if (/^[1-4]$/.test(e.key)) {
+          const idx = parseInt(e.key, 10) - 1;
+          handleCarriageClick(idx);
+        } else if (selectedIdx !== null) {
+          if (e.key === 'ArrowLeft' && selectedIdx > 0) {
+            e.preventDefault();
+            swapCarriages(selectedIdx, selectedIdx - 1);
+          } else if (e.key === 'ArrowRight' && selectedIdx < currentOrder.length - 1) {
+            e.preventDefault();
+            swapCarriages(selectedIdx, selectedIdx + 1);
+          } else if (e.key === 'Escape') {
+            setSelectedIdx(null);
+          }
+        }
+      };
+      window.addEventListener('keydown', handleKey);
+      return () => window.removeEventListener('keydown', handleKey);
+    }, [phase, isDeparting, selectedIdx, currentOrder, swapCarriages]);
 
     const handleCarriageClick = (clickedIdx: number) => {
       if (phase !== 'PLAYING' || isDeparting) return;

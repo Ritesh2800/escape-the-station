@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Era, GameDefinition } from '../game/types';
 import { randomChoice, randomInt } from '../game/rng';
 import { sound } from '../game/audio';
@@ -149,6 +149,29 @@ export const impostorCarriageGame: GameDefinition<ImpostorPuzzle> = {
     const [solvedIdx, setSolvedIdx] = useState<number | null>(null);
     const [activeIdx, setActiveIdx] = useState(0);
 
+    // Reset when puzzle changes
+    useEffect(() => {
+      setSolvedIdx(null);
+      setShakeIdx(null);
+      setActiveIdx(0);
+    }, [puzzle]);
+
+    // Keyboard navigation
+    useEffect(() => {
+      if (phase !== 'PLAYING') return;
+      const handleKey = (e: KeyboardEvent) => {
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          setActiveIdx((prev) => Math.max(0, prev - 1));
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          setActiveIdx((prev) => Math.min(puzzle.carriages.length - 1, prev + 1));
+        }
+      };
+      window.addEventListener('keydown', handleKey);
+      return () => window.removeEventListener('keydown', handleKey);
+    }, [phase, puzzle.carriages.length]);
+
     const data = TRAIN_DATA[era] || TRAIN_DATA.present;
     const engineW = Math.round(data.engineH * data.engineAspect);
     const carriageW = Math.round(data.carriageH * data.carriageAspect);
@@ -207,13 +230,14 @@ export const impostorCarriageGame: GameDefinition<ImpostorPuzzle> = {
           {puzzle.carriages.map((c, i) => {
             const isTarget = solvedIdx === i;
             const isShaking = shakeIdx === i;
+            const isInspected = activeIdx === i;
 
             return (
               <div
                 key={c.id}
                 className={`train-car train-carriage impostor-car ${
                   isTarget ? 'is-solved' : ''
-                } ${isShaking ? 'shake-active' : ''}`}
+                } ${isShaking ? 'shake-active' : ''} ${isInspected ? 'inspected-carriage' : ''}`}
                 onClick={() => {
                   setActiveIdx(i);
                   handleCarriageClick(i);
@@ -233,12 +257,11 @@ export const impostorCarriageGame: GameDefinition<ImpostorPuzzle> = {
                   alt="carriage"
                   className="train-sprite-img"
                   style={{
-                    filter: c.bodyHueRotate ? `hue-rotate(${c.bodyHueRotate}deg)` : undefined,
+                    filter: c.bodyHueRotate ? `hue-rotate(${c.bodyHueRotate}deg) saturate(1.4)` : undefined,
                   }}
                 />
 
-                {/* Overlaid Trait Elements */}
-                {/* 1. Custom Roof Stripe */}
+                {/* Overlaid Trait 1: Roof Stripe */}
                 <div
                   className="carriage-roof-stripe-overlay"
                   style={{
@@ -246,56 +269,118 @@ export const impostorCarriageGame: GameDefinition<ImpostorPuzzle> = {
                     top: 14,
                     left: 20,
                     right: 20,
-                    height: 5,
+                    height: 6,
                     backgroundColor: c.roofStripeColor,
-                    boxShadow: `0 0 6px ${c.roofStripeColor}`,
+                    boxShadow: `0 0 8px ${c.roofStripeColor}`,
                     zIndex: 12,
                     pointerEvents: 'none',
+                    borderRadius: 2,
                   }}
                 />
 
-                {/* 2. Custom Lantern on roof */}
+                {/* Overlaid Trait 2: Lantern on roof */}
                 {c.hasLantern && (
                   <div
                     className="roof-lantern-pixel"
                     style={{
                       position: 'absolute',
-                      top: -16,
+                      top: -18,
                       left: '50%',
                       transform: 'translateX(-50%)',
-                      width: 14,
-                      height: 18,
+                      width: 16,
+                      height: 20,
                       backgroundColor: '#f59e0b',
                       border: '2px solid #78350f',
                       borderRadius: 3,
-                      boxShadow: '0 0 10px #f59e0b',
+                      boxShadow: '0 0 14px #f59e0b',
                       zIndex: 15,
                     }}
                   >
-                    <span style={{ fontSize: 8, display: 'block', textAlign: 'center' }}>🔥</span>
+                    <span style={{ fontSize: 10, display: 'block', textAlign: 'center', lineHeight: '18px' }}>🔥</span>
                   </div>
                 )}
 
-                {/* 3. Number Plate */}
+                {/* Overlaid Trait 3: Number Plate */}
                 <div
                   className="carriage-number-plate-tag"
                   style={{
                     position: 'absolute',
-                    top: 38,
+                    top: 36,
                     left: 22,
-                    padding: '2px 6px',
+                    padding: '2px 8px',
                     fontFamily: 'var(--font-pixel)',
                     fontSize: 8,
-                    background: 'rgba(0,0,0,0.85)',
+                    background: 'rgba(0,0,0,0.88)',
                     color: '#fff',
-                    border: '1.5px solid #aaa',
+                    border: '1.5px solid #cbd5e1',
                     borderRadius: 2,
                     transform: c.mirroredPlate ? 'scaleX(-1)' : 'none',
                     zIndex: 14,
                     pointerEvents: 'none',
+                    boxShadow: c.mirroredPlate ? '0 0 6px rgba(239, 68, 68, 0.6)' : 'none',
                   }}
                 >
                   {c.plate}
+                </div>
+
+                {/* Overlaid Trait 4: Visible Windows & Color */}
+                <div
+                  className="carriage-windows-overlay"
+                  style={{
+                    position: 'absolute',
+                    top: '36%',
+                    left: '12%',
+                    right: '12%',
+                    display: 'flex',
+                    justifyContent: 'space-evenly',
+                    alignItems: 'center',
+                    zIndex: 13,
+                    pointerEvents: 'none',
+                  }}
+                >
+                  {Array.from({ length: c.windowCount }).map((_, wIdx) => (
+                    <div
+                      key={wIdx}
+                      style={{
+                        width: 28,
+                        height: 20,
+                        backgroundColor: c.windowColor,
+                        border: '2px solid #1e293b',
+                        borderRadius: 2,
+                        boxShadow: `0 0 8px ${c.windowColor}, inset 0 0 4px #ffffff`,
+                      }}
+                    />
+                  ))}
+                </div>
+
+                {/* Overlaid Trait 5: Visible Wheels Overlay */}
+                <div
+                  className="carriage-wheels-overlay"
+                  style={{
+                    position: 'absolute',
+                    bottom: 6,
+                    left: '10%',
+                    right: '10%',
+                    display: 'flex',
+                    justifyContent: 'space-around',
+                    alignItems: 'center',
+                    zIndex: 13,
+                    pointerEvents: 'none',
+                  }}
+                >
+                  {Array.from({ length: c.wheelCount }).map((_, whIdx) => (
+                    <div
+                      key={whIdx}
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: '50%',
+                        background: 'radial-gradient(circle, #cbd5e1 30%, #475569 70%, #0f172a 100%)',
+                        border: '2px solid #94a3b8',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.8)',
+                      }}
+                    />
+                  ))}
                 </div>
 
                 {/* Stamp if caught */}
@@ -312,7 +397,7 @@ export const impostorCarriageGame: GameDefinition<ImpostorPuzzle> = {
                       color: '#22c55e',
                       border: '4px solid #22c55e',
                       padding: '4px 16px',
-                      background: 'rgba(0,0,0,0.9)',
+                      background: 'rgba(0,0,0,0.92)',
                       boxShadow: '0 0 20px #22c55e',
                       zIndex: 25,
                     }}
@@ -336,7 +421,7 @@ export const impostorCarriageGame: GameDefinition<ImpostorPuzzle> = {
             ◀ PREV CAR
           </button>
           <span className="nav-car-index">
-            CARRIAGE {activeIdx + 1} OF {puzzle.carriages.length}
+            CARRIAGE {activeIdx + 1} OF {puzzle.carriages.length} · [TAP TO INSPECT / ACCUSE]
           </span>
           <button
             type="button"

@@ -50,32 +50,56 @@ export const lockpickDialGame: GameDefinition<LockPickPuzzle> = {
 
   Component: function LockPickComponent({ puzzle, era, phase, api }) {
     const [currentPin, setCurrentPin] = useState(0); // 0, 1, 2
-    const [needleAngle, setNeedleAngle] = useState(0);
     const [currentArcAngle, setCurrentArcAngle] = useState(puzzle.pinStages[0].targetAngle);
     const [currentDir, setCurrentDir] = useState<1 | -1>(puzzle.pinStages[0].direction);
     const [shake, setShake] = useState(false);
     const [clickEffect, setClickEffect] = useState(false);
 
+    const needleAngleRef = useRef(0);
+    const needleElRef = useRef<SVGGElement>(null);
     const lockRef = useRef(false);
     const animRef = useRef<number>(0);
+    const dirReverseTimeoutRef = useRef<number>(0);
 
     const stageConfig = puzzle.pinStages[currentPin] || puzzle.pinStages[2];
 
-    // Animation Loop: rotate needle
+    // Reset when puzzle changes
+    useEffect(() => {
+      setCurrentPin(0);
+      setCurrentArcAngle(puzzle.pinStages[0].targetAngle);
+      setCurrentDir(puzzle.pinStages[0].direction);
+      needleAngleRef.current = 0;
+      clearTimeout(dirReverseTimeoutRef.current);
+    }, [puzzle]);
+
+    // Reverse direction surprise on Pin 3 per spec
+    useEffect(() => {
+      if (currentPin === 2 && phase === 'PLAYING') {
+        const reverseDelay = 1200 + Math.random() * 1200;
+        dirReverseTimeoutRef.current = window.setTimeout(() => {
+          setCurrentDir((prev) => (prev === 1 ? -1 : 1));
+        }, reverseDelay);
+      }
+      return () => clearTimeout(dirReverseTimeoutRef.current);
+    }, [currentPin, phase]);
+
+    // Direct high-performance SVG needle rotation loop (zero React state overhead)
     useEffect(() => {
       if (phase !== 'PLAYING') return;
 
       let last = performance.now();
       const loop = (nowTime: number) => {
-        const dt = (nowTime - last) / 1000;
+        const dt = Math.min((nowTime - last) / 1000, 0.05);
         last = nowTime;
 
-        setNeedleAngle((prev) => {
-          let next = prev + currentDir * stageConfig.speed * dt;
-          if (next >= 360) next -= 360;
-          if (next < 0) next += 360;
-          return next;
-        });
+        let next = needleAngleRef.current + currentDir * stageConfig.speed * dt;
+        if (next >= 360) next -= 360;
+        if (next < 0) next += 360;
+        needleAngleRef.current = next;
+
+        if (needleElRef.current) {
+          needleElRef.current.setAttribute('transform', `rotate(${next} 120 120)`);
+        }
 
         animRef.current = requestAnimationFrame(loop);
       };
@@ -84,35 +108,21 @@ export const lockpickDialGame: GameDefinition<LockPickPuzzle> = {
       return () => cancelAnimationFrame(animRef.current);
     }, [phase, currentDir, stageConfig.speed]);
 
-    // Space / Enter Keyboard trigger
-    useEffect(() => {
-      if (phase !== 'PLAYING') return;
-
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.code === 'Space' || e.key === 'Enter') {
-          e.preventDefault();
-          attemptPick();
-        }
-      };
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [phase, needleAngle, currentArcAngle, currentPin]);
-
     const attemptPick = () => {
       if (phase !== 'PLAYING' || lockRef.current) return;
       lockRef.current = true;
-      setTimeout(() => (lockRef.current = false), 300);
+      setTimeout(() => (lockRef.current = false), 250);
 
-      // Check if needle angle falls within arc [targetAngle, targetAngle + arcWidth]
+      const angle = needleAngleRef.current;
       const minA = currentArcAngle;
       const maxA = currentArcAngle + stageConfig.arcWidth;
 
       let isHit = false;
       if (maxA <= 360) {
-        isHit = needleAngle >= minA - 1 && needleAngle <= maxA + 1;
+        isHit = angle >= minA - 1.5 && angle <= maxA + 1.5;
       } else {
         // Wraparound 360
-        isHit = needleAngle >= minA - 1 || needleAngle <= (maxA - 360) + 1;
+        isHit = angle >= minA - 1.5 || angle <= (maxA - 360) + 1.5;
       }
 
       if (isHit) {
@@ -148,6 +158,23 @@ export const lockpickDialGame: GameDefinition<LockPickPuzzle> = {
       }
     };
 
+    const attemptPickRef = useRef(attemptPick);
+    attemptPickRef.current = attemptPick;
+
+    // Zero-lag keyboard listener (attached once)
+    useEffect(() => {
+      if (phase !== 'PLAYING') return;
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.code === 'Space' || e.key === 'Enter') {
+          e.preventDefault();
+          attemptPickRef.current();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [phase]);
+
     return (
       <div className={`lockpick-game-layer era-${era}`}>
         {/* Dim Overlay */}
@@ -161,7 +188,7 @@ export const lockpickDialGame: GameDefinition<LockPickPuzzle> = {
                 key={i}
                 className={`lock-pin-light ${i < currentPin ? 'solved-green' : i === currentPin ? 'active-yellow' : 'locked-dim'}`}
               >
-                PIN {i + 1}
+                PIN {i + 1} {i < currentPin ? '✓' : ''}
               </div>
             ))}
           </div>
@@ -213,13 +240,13 @@ export const lockpickDialGame: GameDefinition<LockPickPuzzle> = {
                 className="dial-target-arc"
               />
 
-              {/* Center Needle */}
-              <g transform={`rotate(${needleAngle} 120 120)`}>
+              {/* Center Needle Group (transformed directly via DOM for 120fps zero lag) */}
+              <g ref={needleElRef} transform="rotate(0 120 120)">
                 <line
                   x1="120"
                   y1="120"
                   x2="120"
-                  y2="22"
+                  y2="20"
                   stroke="#ef4444"
                   strokeWidth="3.5"
                   strokeLinecap="round"

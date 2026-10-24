@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CaptchaCard } from './components/CaptchaCard';
 import { GameOverlay } from './components/GameOverlay';
 import { Scene } from './components/Scene';
@@ -16,22 +16,28 @@ export default function App() {
     urlParams.game && GAME_MAP[urlParams.game as GameId] ? urlParams.game : 'random'
   );
 
-  const [seed, setSeed] = useState<number>(urlParams.seed || Date.now());
-  const rng = useRef(createRNG(seed));
+  const [seed, setSeed] = useState<number>(() => urlParams.seed || Date.now());
+  const rng = useRef<(() => number) | null>(null);
+  if (!rng.current) {
+    rng.current = createRNG(seed);
+  }
 
-  const [era, setEra] = useState<Era>(getInitialEra(rng.current));
-  const [activeGame, setActiveGame] = useState<GameDefinition>(() =>
-    selectNextGame(
+  const initialData = useRef<{ era: Era; game: GameDefinition; puzzle: any } | null>(null);
+  if (!initialData.current) {
+    const initialEra = getInitialEra(rng.current);
+    const initialGame = selectNextGame(
       urlParams.game && GAME_MAP[urlParams.game as GameId]
         ? (urlParams.game as GameId)
         : 'random',
       rng.current
-    )
-  );
+    );
+    const initialPuzzle = initialGame.generate(rng.current, initialEra);
+    initialData.current = { era: initialEra, game: initialGame, puzzle: initialPuzzle };
+  }
 
-  const [puzzle, setPuzzle] = useState<any>(() =>
-    activeGame.generate(rng.current, era)
-  );
+  const [era, setEra] = useState<Era>(initialData.current.era);
+  const [activeGame, setActiveGame] = useState<GameDefinition>(initialData.current.game);
+  const [puzzle, setPuzzle] = useState<any>(initialData.current.puzzle);
 
   // UI state
   const [uiMode, setUiMode] = useState<'COLLAPSED' | 'EXPANDING' | 'EXPANDED' | 'COLLAPSING'>('COLLAPSED');
@@ -49,15 +55,13 @@ export default function App() {
 
   const roundStartTimeRef = useRef<number>(0);
   const timerIntervalRef = useRef<number>(0);
-  const introTimeoutRef = useRef<number>(0);
   const livesRef = useRef<number | null>(activeGame.defaultLives);
 
-  // Initialize a fresh round
+  // Initialize a fresh round (called immediately when expanding or switching games)
   const startNewRound = useCallback(
-    (gameChoice?: string, customSeed?: number) => {
-      // Clear timers
+    (gameChoice?: string, customSeed?: number, autoStartTimer = true) => {
+      // Clear previous timer
       clearInterval(timerIntervalRef.current);
-      clearTimeout(introTimeoutRef.current);
 
       const nextSeed = customSeed || Date.now();
       setSeed(nextSeed);
@@ -75,7 +79,14 @@ export default function App() {
       );
 
       setActiveGame(nextGameDef);
-      const newPuzzle = nextGameDef.generate(rng.current, nextEra);
+
+      // Solvability guard with up to 20 attempts
+      let newPuzzle = nextGameDef.generate(rng.current, nextEra);
+      let attempts = 0;
+      while (!nextGameDef.isSolvable(newPuzzle) && attempts < 20) {
+        newPuzzle = nextGameDef.generate(rng.current, nextEra);
+        attempts++;
+      }
       setPuzzle(newPuzzle);
 
       livesRef.current = nextGameDef.defaultLives;
@@ -84,45 +95,31 @@ export default function App() {
       setStatusText('');
       setFailReason('');
 
-      // 1.2s INTRO -> then PLAYING
-      setRoundPhase('INTRO');
-      introTimeoutRef.current = window.setTimeout(() => {
+      if (autoStartTimer) {
         setRoundPhase('PLAYING');
         roundStartTimeRef.current = performance.now();
-      }, 1200);
+      } else {
+        // Ready in INTRO state while transition opens
+        setRoundPhase('INTRO');
+      }
     },
     [selectedGameSetting]
   );
 
-  // 30s Countdown timer during PLAYING phase
-  useEffect(() => {
-    if (roundPhase === 'PLAYING') {
-      timerIntervalRef.current = window.setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(timerIntervalRef.current);
-            handleFail("Time's up!");
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
-      clearInterval(timerIntervalRef.current);
-    }
-    return () => clearInterval(timerIntervalRef.current);
-  }, [roundPhase]);
-
-  // Shake trigger
-  const triggerShake = useCallback(() => {
-    setIsShaking(true);
-    setTimeout(() => setIsShaking(false), 200);
+  // Fail handler - keeps overlay open with Try Again & Next Game buttons
+  const handleFail = useCallback((reason: string) => {
+    clearInterval(timerIntervalRef.current);
+    sound.stopBGM();
+    sound.playError();
+    sound.startTrainSound();
+    setFailReason(reason);
+    setRoundPhase('FAIL');
   }, []);
 
-  // Pass handler - closes and shrinks to captcha box after single game
+  // Pass handler - celebratory victory then collapses to verified CAPTCHA box
   const handlePass = useCallback(() => {
     clearInterval(timerIntervalRef.current);
-    const duration = (performance.now() - roundStartTimeRef.current) / 1000;
+    const duration = Math.max(0.5, (performance.now() - roundStartTimeRef.current) / 1000);
     setSolveDuration(duration);
     setRoundPhase('PASS');
     setIsVerified(true);
@@ -133,22 +130,6 @@ export default function App() {
     setTimeout(() => {
       setUiMode('COLLAPSING');
     }, 1300);
-  }, []);
-
-  // Fail handler - closes the game UI and shrinks to CAPTCHA box
-  const handleFail = useCallback((reason: string) => {
-    clearInterval(timerIntervalRef.current);
-    sound.stopBGM();
-    sound.playError();
-    sound.startTrainSound();
-    setFailReason(reason);
-    setRoundPhase('FAIL');
-
-    // Automatically close the game UI and shrink back to CAPTCHA box
-    setTimeout(() => {
-      sound.stopTrainSound();
-      setUiMode('COLLAPSING');
-    }, 700);
   }, []);
 
   // Lose life handler
@@ -163,39 +144,68 @@ export default function App() {
     return remaining;
   }, [handleFail]);
 
-  // Game API contract passed to components
-  const gameApi: GameApi = useRef({
-    pass: () => handlePass(),
-    fail: (reason: string) => handleFail(reason),
-    loseLife: () => handleLoseLife(),
-    setStatus: (text: string) => setStatusText(text),
-    now: () => performance.now() - roundStartTimeRef.current,
-    timeLeft: () => timeLeft,
-    triggerShake: () => triggerShake(),
-  }).current;
+  // 30s Countdown timer during PLAYING phase
+  useEffect(() => {
+    if (roundPhase === 'PLAYING') {
+      timerIntervalRef.current = window.setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerIntervalRef.current);
+            handleFail("Time's up! Train departed.");
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(timerIntervalRef.current);
+    }
+    return () => clearInterval(timerIntervalRef.current);
+  }, [roundPhase, handleFail]);
 
-  // Keep API refs fresh
-  gameApi.pass = handlePass;
-  gameApi.fail = handleFail;
-  gameApi.loseLife = handleLoseLife;
-  gameApi.timeLeft = () => timeLeft;
-  gameApi.triggerShake = triggerShake;
+  // Shake trigger
+  const triggerShake = useCallback(() => {
+    setIsShaking(true);
+    setTimeout(() => setIsShaking(false), 200);
+  }, []);
 
-  // Expanding from CAPTCHA Box
+  const timeLeftRef = useRef(timeLeft);
+  timeLeftRef.current = timeLeft;
+
+  // Game API contract passed to components (completely stable across timer ticks)
+  const gameApi: GameApi = useMemo(
+    () => ({
+      pass: handlePass,
+      fail: handleFail,
+      loseLife: handleLoseLife,
+      setStatus: (text: string) => setStatusText(text),
+      now: () => performance.now() - roundStartTimeRef.current,
+      timeLeft: () => timeLeftRef.current,
+      triggerShake,
+    }),
+    [handlePass, handleFail, handleLoseLife, triggerShake]
+  );
+
+  // Expanding from CAPTCHA Box: Setup round BEFORE transition starts!
   const handleExpand = useCallback(
     (rect: DOMRect) => {
       sound.playClick(1.2);
       setInputRect(rect);
+
+      // Pre-initialize the round so the revealed game is 100% the true round!
+      startNewRound(selectedGameSetting, undefined, false);
       setUiMode('EXPANDING');
     },
-    []
+    [selectedGameSetting, startNewRound]
   );
 
   const handleExpandComplete = useCallback(() => {
     setUiMode('EXPANDED');
     sound.startBGM();
-    startNewRound();
-  }, [startNewRound]);
+    // Smoothly transition from INTRO to PLAYING without re-rolling the game or era
+    setRoundPhase('PLAYING');
+    roundStartTimeRef.current = performance.now();
+  }, []);
 
   const handleCollapseComplete = useCallback(() => {
     sound.stopBGM();
@@ -211,7 +221,7 @@ export default function App() {
   const handleSelectGame = (gameId: string) => {
     setSelectedGameSetting(gameId);
     sound.playClick(1.1);
-    startNewRound(gameId);
+    startNewRound(gameId, undefined, true);
   };
 
   // Reset CAPTCHA
@@ -295,7 +305,7 @@ export default function App() {
               }}
             />
 
-            {/* Intro "GO!" Splash */}
+            {/* Intro "GO!" Splash (brief during expand) */}
             {roundPhase === 'INTRO' && (
               <div className="round-intro-overlay">
                 <div className="intro-title-text">{activeGame.title}</div>
@@ -309,6 +319,20 @@ export default function App() {
               phase={roundPhase}
               failReason={failReason}
               durationSeconds={solveDuration}
+              onTryAgain={() => {
+                sound.playClick(1.2);
+                startNewRound(selectedGameSetting, undefined, true);
+              }}
+              onNextGame={() => {
+                sound.playClick(1.2);
+                setSelectedGameSetting('random');
+                startNewRound('random', undefined, true);
+              }}
+              onClose={() => {
+                sound.stopBGM();
+                sound.stopTrainSound();
+                setUiMode('COLLAPSING');
+              }}
             />
 
             {/* Bottom Disclaimer Strip required by spec */}
