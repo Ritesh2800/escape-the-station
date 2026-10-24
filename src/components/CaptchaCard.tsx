@@ -2,12 +2,17 @@ import { useRef, useState } from 'react';
 
 interface CaptchaCardProps {
   solved: boolean;
-  isExpired?: boolean;
+  solveDurationSeconds?: number;
   onExpand: (rect: DOMRect) => void;
   onReset: () => void;
 }
 
-export function CaptchaCard({ solved, isExpired = false, onExpand, onReset }: CaptchaCardProps) {
+export function CaptchaCard({
+  solved,
+  solveDurationSeconds = 0,
+  onExpand,
+  onReset,
+}: CaptchaCardProps) {
   const captchaBoxRef = useRef<HTMLDivElement>(null);
   const [isActivating, setIsActivating] = useState(false);
 
@@ -18,7 +23,6 @@ export function CaptchaCard({ solved, isExpired = false, onExpand, onReset }: Ca
       setIsActivating(true);
       const rect = captchaBoxRef.current.getBoundingClientRect();
       onExpand(rect);
-      // Reset activating state shortly after transition takes over
       setTimeout(() => setIsActivating(false), 500);
     }
   };
@@ -26,7 +30,7 @@ export function CaptchaCard({ solved, isExpired = false, onExpand, onReset }: Ca
   return (
     <div className="collapsed-page">
       <div className="captcha-only-container">
-        {/* Only the CAPTCHA Box */}
+        {/* Main CAPTCHA Box */}
         <div
           id="captcha-box"
           ref={captchaBoxRef}
@@ -63,18 +67,12 @@ export function CaptchaCard({ solved, isExpired = false, onExpand, onReset }: Ca
 
             <div className="captcha-label-group">
               <span className="captcha-main-text">
-                {solved
-                  ? 'Verification Complete'
-                  : isExpired
-                  ? 'Verification Expired'
-                  : "I'm not a robot"}
+                {solved ? "I'm not a robot" : "I'm not a robot"}
               </span>
               <span className="captcha-hint-text">
                 {solved
-                  ? 'Station escaped!'
-                  : isExpired
-                  ? 'Train departed (30s) · Click to retry'
-                  : 'Click to verify'}
+                  ? `Verified human in ${solveDurationSeconds.toFixed(1)} s`
+                  : 'Station Security · Click to verify'}
               </span>
             </div>
           </div>
@@ -98,10 +96,15 @@ export function CaptchaCard({ solved, isExpired = false, onExpand, onReset }: Ca
           </div>
         </div>
 
-        {/* Subtle replay button if solved */}
+        {/* Small persistent disclaimer required by spec */}
+        <div className="captcha-disclaimer-note">
+          This is a game. No real security.
+        </div>
+
+        {/* Reset link when solved */}
         {solved && (
           <button className="play-again-link" onClick={onReset} type="button">
-            Play again
+            Reset CAPTCHA
           </button>
         )}
       </div>

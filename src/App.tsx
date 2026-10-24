@@ -2,273 +2,332 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CaptchaCard } from './components/CaptchaCard';
 import { GameOverlay } from './components/GameOverlay';
 import { Scene } from './components/Scene';
-import { Train } from './components/Train';
 import { HUD } from './components/HUD';
-import { Keypad } from './components/Keypad';
-import { WinScreen } from './components/WinScreen';
-import { useGameState, getRandomEra } from './game/state';
-import { useTrainCountdown } from './game/trainLoop';
-import { GAME_RULES } from './game/config';
+import { RoundResultOverlay } from './components/RoundResultOverlay';
 import { sound } from './game/audio';
+import type { Era, GameId, RoundPhase, GameApi, GameDefinition } from './game/types';
+import { createRNG, getUrlParams } from './game/rng';
+import { selectNextGame, getInitialEra, GAME_MAP } from './games/registry';
 
 export default function App() {
-  const {
-    state,
-    dispatch,
-    startExpand,
-    finishExpand,
-    startCollapse,
-    finishCollapse,
-    solve,
-    reset,
-  } = useGameState();
-
-  const [showWin, setShowWin] = useState(false);
-  const [isShaking, setIsShaking] = useState(false);
-  const [windowWidth, setWindowWidth] = useState(
-    typeof window !== 'undefined' ? window.innerWidth : 1280
+  // Read optional URL parameters
+  const urlParams = getUrlParams();
+  const [selectedGameSetting, setSelectedGameSetting] = useState<string>(
+    urlParams.game && GAME_MAP[urlParams.game as GameId] ? urlParams.game : 'random'
   );
-  const shakeTimeoutRef = useRef<number>(0);
 
-  // Track window resize to center active carriage precisely
+  const [seed, setSeed] = useState<number>(urlParams.seed || Date.now());
+  const rng = useRef(createRNG(seed));
+
+  const [era, setEra] = useState<Era>(getInitialEra(rng.current));
+  const [activeGame, setActiveGame] = useState<GameDefinition>(() =>
+    selectNextGame(
+      urlParams.game && GAME_MAP[urlParams.game as GameId]
+        ? (urlParams.game as GameId)
+        : 'random',
+      rng.current
+    )
+  );
+
+  const [puzzle, setPuzzle] = useState<any>(() =>
+    activeGame.generate(rng.current, era)
+  );
+
+  // UI state
+  const [uiMode, setUiMode] = useState<'COLLAPSED' | 'EXPANDING' | 'EXPANDED' | 'COLLAPSING'>('COLLAPSED');
+  const [inputRect, setInputRect] = useState<DOMRect | null>(null);
+
+  // Round lifecycle
+  const [roundPhase, setRoundPhase] = useState<RoundPhase>('IDLE');
+  const [timeLeft, setTimeLeft] = useState<number>(30);
+  const [lives, setLives] = useState<number | null>(activeGame.defaultLives);
+  const [statusText, setStatusText] = useState<string>('');
+  const [failReason, setFailReason] = useState<string>('');
+  const [isShaking, setIsShaking] = useState(false);
+  const [solveDuration, setSolveDuration] = useState(0);
+  const [isVerified, setIsVerified] = useState(false);
+
+  const roundStartTimeRef = useRef<number>(0);
+  const timerIntervalRef = useRef<number>(0);
+  const introTimeoutRef = useRef<number>(0);
+  const livesRef = useRef<number | null>(activeGame.defaultLives);
+
+  // Initialize a fresh round
+  const startNewRound = useCallback(
+    (gameChoice?: string, customSeed?: number) => {
+      // Clear timers
+      clearInterval(timerIntervalRef.current);
+      clearTimeout(introTimeoutRef.current);
+
+      const nextSeed = customSeed || Date.now();
+      setSeed(nextSeed);
+      rng.current = createRNG(nextSeed);
+
+      const nextEra = getInitialEra(rng.current);
+      setEra(nextEra);
+
+      const choice = gameChoice !== undefined ? gameChoice : selectedGameSetting;
+      const nextGameDef = selectNextGame(
+        choice !== 'random' && GAME_MAP[choice as GameId]
+          ? (choice as GameId)
+          : 'random',
+        rng.current
+      );
+
+      setActiveGame(nextGameDef);
+      const newPuzzle = nextGameDef.generate(rng.current, nextEra);
+      setPuzzle(newPuzzle);
+
+      livesRef.current = nextGameDef.defaultLives;
+      setLives(nextGameDef.defaultLives);
+      setTimeLeft(30);
+      setStatusText('');
+      setFailReason('');
+
+      // 1.2s INTRO -> then PLAYING
+      setRoundPhase('INTRO');
+      introTimeoutRef.current = window.setTimeout(() => {
+        setRoundPhase('PLAYING');
+        roundStartTimeRef.current = performance.now();
+      }, 1200);
+    },
+    [selectedGameSetting]
+  );
+
+  // 30s Countdown timer during PLAYING phase
   useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    if (roundPhase === 'PLAYING') {
+      timerIntervalRef.current = window.setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerIntervalRef.current);
+            handleFail("Time's up!");
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(timerIntervalRef.current);
+    }
+    return () => clearInterval(timerIntervalRef.current);
+  }, [roundPhase]);
+
+  // Shake trigger
+  const triggerShake = useCallback(() => {
+    setIsShaking(true);
+    setTimeout(() => setIsShaking(false), 200);
   }, []);
 
-  // 30-Second Countdown Hook
-  const onTick = useCallback(
-    (secondsLeft: number) => {
-      dispatch({ type: 'SET_TIME_LEFT', timeLeft: secondsLeft });
-    },
-    [dispatch]
-  );
+  // Pass handler - closes and shrinks to captcha box after single game
+  const handlePass = useCallback(() => {
+    clearInterval(timerIntervalRef.current);
+    const duration = (performance.now() - roundStartTimeRef.current) / 1000;
+    setSolveDuration(duration);
+    setRoundPhase('PASS');
+    setIsVerified(true);
+    sound.stopBGM();
+    sound.playVictoryFanfare();
 
-  const onTimeout = useCallback(() => {
-    sound.playTrainWhistle();
-    sound.startTrainSound();
-    dispatch({ type: 'GAME_TIMEOUT' });
-
-    // After train speeds away (1.8s), shrink back to captcha box
+    // After 1.3s victory celebration -> shrink back to CAPTCHA box
     setTimeout(() => {
-      sound.stopTrainSound();
-      sound.stopBGM();
-      startCollapse();
-    }, 1800);
-  }, [dispatch, startCollapse]);
+      setUiMode('COLLAPSING');
+    }, 1300);
+  }, []);
 
-  const { freeze: freezeCountdown } = useTrainCountdown(
-    state.uiMode === 'EXPANDED' && !state.solved,
-    onTick,
-    onTimeout
-  );
+  // Fail handler
+  const handleFail = useCallback((reason: string) => {
+    clearInterval(timerIntervalRef.current);
+    sound.playError();
+    setFailReason(reason);
+    setRoundPhase('FAIL');
 
-  // Expand with randomized era
+    // If 30s timeout or departure -> train departs and shrink back to CAPTCHA box
+    if (reason === "Time's up!" || reason.includes('departed')) {
+      sound.startTrainSound();
+      setTimeout(() => {
+        sound.stopTrainSound();
+        setUiMode('COLLAPSING');
+      }, 1800);
+    }
+  }, []);
+
+  // Lose life handler
+  const handleLoseLife = useCallback((): number => {
+    if (livesRef.current === null) return 0;
+    const remaining = Math.max(0, livesRef.current - 1);
+    livesRef.current = remaining;
+    setLives(remaining);
+    if (remaining <= 0) {
+      handleFail('Out of lives! Train departed.');
+    }
+    return remaining;
+  }, [handleFail]);
+
+  // Game API contract passed to components
+  const gameApi: GameApi = useRef({
+    pass: () => handlePass(),
+    fail: (reason: string) => handleFail(reason),
+    loseLife: () => handleLoseLife(),
+    setStatus: (text: string) => setStatusText(text),
+    now: () => performance.now() - roundStartTimeRef.current,
+    timeLeft: () => timeLeft,
+    triggerShake: () => triggerShake(),
+  }).current;
+
+  // Keep API refs fresh
+  gameApi.pass = handlePass;
+  gameApi.fail = handleFail;
+  gameApi.loseLife = handleLoseLife;
+  gameApi.timeLeft = () => timeLeft;
+  gameApi.triggerShake = triggerShake;
+
+  // Expanding from CAPTCHA Box
   const handleExpand = useCallback(
     (rect: DOMRect) => {
       sound.playClick(1.2);
-      const randomEra = getRandomEra();
-      startExpand(rect, randomEra);
+      setInputRect(rect);
+      setUiMode('EXPANDING');
     },
-    [startExpand]
+    []
   );
 
   const handleExpandComplete = useCallback(() => {
-    finishExpand();
+    setUiMode('EXPANDED');
     sound.startBGM();
-  }, [finishExpand]);
+    startNewRound();
+  }, [startNewRound]);
 
   const handleCollapseComplete = useCallback(() => {
     sound.stopBGM();
     sound.stopTrainSound();
-    finishCollapse();
-  }, [finishCollapse]);
-
-  // Shake animation trigger on incorrect input
-  const triggerShake = useCallback(() => {
-    sound.playError();
-    setIsShaking(true);
-    clearTimeout(shakeTimeoutRef.current);
-    shakeTimeoutRef.current = window.setTimeout(() => {
-      setIsShaking(false);
-    }, 350);
-  }, []);
-
-  // Handle digit entry on active carriage
-  const handleDigit = useCallback(
-    (digit: string) => {
-      if (state.solved || state.isExpired || state.trainPhase === 'DEPARTING') {
-        return;
-      }
-
-      const currentStage = state.activeStage;
-      const currentVal = state.stageValues[currentStage] || '';
-
-      if (currentVal.length >= 2) return;
-
-      const newVal = currentVal + digit;
-      dispatch({ type: 'SET_STAGE_INPUT', stage: currentStage, value: newVal });
-
-      // When 2 digits entered, check match against stage target
-      if (newVal.length === 2) {
-        const target = GAME_RULES.STAGE_TARGETS[currentStage];
-
-        if (newVal === target) {
-          // Success!
-          sound.playRulePass();
-          dispatch({ type: 'STAGE_PASSED', stage: currentStage });
-
-          // If last stage (Stage 2) completed -> WIN!
-          if (currentStage === 2) {
-            freezeCountdown();
-            setShowWin(true);
-            sound.playVictoryFanfare();
-
-            setTimeout(() => {
-              solve();
-              setTimeout(() => {
-                setShowWin(false);
-                sound.stopBGM();
-                sound.stopTrainSound();
-                startCollapse();
-              }, 2200);
-            }, 1800);
-          }
-        } else {
-          // Wrong 2-digit code for this carriage -> Shake and clear
-          triggerShake();
-          setTimeout(() => {
-            dispatch({ type: 'STAGE_FAILED', stage: currentStage });
-          }, 350);
-        }
-      }
-    },
-    [
-      state.solved,
-      state.isExpired,
-      state.trainPhase,
-      state.activeStage,
-      state.stageValues,
-      dispatch,
-      freezeCountdown,
-      solve,
-      startCollapse,
-      triggerShake,
-    ]
-  );
-
-  // Backspace on active carriage
-  const handleBackspace = useCallback(() => {
-    if (state.solved || state.isExpired || state.trainPhase === 'DEPARTING') {
-      return;
+    setUiMode('COLLAPSED');
+    setRoundPhase('IDLE');
+    if (roundPhase === 'PASS') {
+      setIsVerified(true);
     }
-    const currentStage = state.activeStage;
-    const currentVal = state.stageValues[currentStage] || '';
-    if (currentVal.length > 0) {
-      dispatch({
-        type: 'SET_STAGE_INPUT',
-        stage: currentStage,
-        value: currentVal.slice(0, -1),
-      });
-    }
-  }, [
-    state.solved,
-    state.isExpired,
-    state.trainPhase,
-    state.activeStage,
-    state.stageValues,
-    dispatch,
-  ]);
+  }, [roundPhase]);
 
-  // ESC key to return to login
+  // Dropdown game selector change
+  const handleSelectGame = (gameId: string) => {
+    setSelectedGameSetting(gameId);
+    sound.playClick(1.1);
+    startNewRound(gameId);
+  };
+
+  // Reset CAPTCHA
+  const handleResetCaptcha = () => {
+    sound.playClick(0.9);
+    setIsVerified(false);
+    setSolveDuration(0);
+    setRoundPhase('IDLE');
+  };
+
+  // ESC key to return
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && state.uiMode === 'EXPANDED') {
+      if (e.key === 'Escape' && uiMode === 'EXPANDED') {
         e.preventDefault();
         sound.stopBGM();
         sound.stopTrainSound();
-        startCollapse();
+        setUiMode('COLLAPSING');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [state.uiMode, startCollapse]);
+  }, [uiMode]);
+
+  const GameComponent = activeGame.Component;
 
   return (
     <>
+      {/* 1. Host Page CAPTCHA Card */}
       <CaptchaCard
-        solved={state.solved && state.uiMode === 'COLLAPSED'}
-        isExpired={state.isExpired && state.uiMode === 'COLLAPSED'}
+        solved={isVerified && uiMode === 'COLLAPSED'}
+        solveDurationSeconds={solveDuration}
         onExpand={handleExpand}
-        onReset={reset}
+        onReset={handleResetCaptcha}
       />
 
+      {/* 2. Fullscreen Pixel Game Overlay */}
       <GameOverlay
-        uiMode={state.uiMode}
-        inputRect={state.inputRect}
-        era={state.era}
-        isGlitching={false}
+        uiMode={uiMode}
+        inputRect={inputRect}
+        era={era}
         onExpandComplete={handleExpandComplete}
         onCollapseComplete={handleCollapseComplete}
         onSolve={() => {}}
       >
-        {state.uiMode !== 'COLLAPSED' && (
-          <>
-            {/* Fullscreen Scene covering entire viewport */}
-            <Scene era={state.era} isGlitching={false}>
-              {/* Train with Sprites & Carriage Clues */}
-              <Train
-                era={state.era}
-                phase={state.trainPhase}
-                activeStage={state.activeStage}
-                solvedStages={state.solvedStages}
-                stageWidth={windowWidth}
+        {uiMode !== 'COLLAPSED' && (
+          <div className={`game-viewport-container ${isShaking ? 'screen-shake' : ''}`}>
+            {/* Fullscreen Pixel Scene Background & Station Signboard */}
+            <Scene
+              era={era}
+              stationBoardText={
+                activeGame.stationBoardText ? activeGame.stationBoardText(puzzle) : null
+              }
+            >
+              {/* Active Game Component Layer */}
+              <GameComponent
+                puzzle={puzzle}
+                era={era}
+                phase={roundPhase}
+                api={gameApi}
+                timeLeft={timeLeft}
+                lives={lives}
               />
             </Scene>
 
-            {/* Floating HUD & Compact Keypad Overlay */}
-            <div className="game-hud-overlay">
-              {/* Top Warning Banner */}
-              <div
-                className={`warning-banner ${
-                  state.isExpired ? 'expired-banner' : ''
-                }`}
-              >
-                {state.isExpired
-                  ? '⚠ 30s TIME EXPIRED — THE TRAIN HAS DEPARTED! ⚠'
-                  : '▲ INVESTIGATE THE ACTIVE CARRIAGE FOR THE 2-DIGIT CODE ▲'}
-              </div>
+            {/* Top HUD with Game Dropdown Selector, Timer, Lives, and Goal */}
+            <HUD
+              era={era}
+              gameTitle={activeGame.title}
+              gameGoal={activeGame.goal(puzzle)}
+              selectedGame={selectedGameSetting}
+              onSelectGame={handleSelectGame}
+              lives={lives}
+              timeLeft={timeLeft}
+              seed={seed}
+              statusText={statusText}
+              onExit={() => {
+                sound.stopBGM();
+                sound.stopTrainSound();
+                setUiMode('COLLAPSING');
+              }}
+            />
 
-              {/* Slim Top Bar: Timeline, Timer, Controls */}
-              <HUD
-                era={state.era}
-                timeLeft={state.timeLeft}
-                activeStage={state.activeStage}
-                isDeparting={state.trainPhase === 'DEPARTING'}
-                onExit={() => {
-                  sound.stopBGM();
-                  sound.stopTrainSound();
-                  startCollapse();
-                }}
-              />
-
-              {/* Compact Keypad Console - only ~220px wide! */}
-              <div className="keypad-console">
-                <Keypad
-                  activeStage={state.activeStage}
-                  stageValues={state.stageValues}
-                  solvedStages={state.solvedStages}
-                  onDigit={handleDigit}
-                  onBackspace={handleBackspace}
-                  isShaking={isShaking}
-                />
+            {/* Intro "GO!" Splash */}
+            {roundPhase === 'INTRO' && (
+              <div className="round-intro-overlay">
+                <div className="intro-title-text">{activeGame.title}</div>
+                <div className="intro-goal-text">{activeGame.goal(puzzle)}</div>
+                <div className="intro-go-flash">GO!</div>
               </div>
+            )}
+
+            {/* Pass / Fail Result Modal */}
+            <RoundResultOverlay
+              phase={roundPhase}
+              failReason={failReason}
+              durationSeconds={solveDuration}
+              onTryAgain={() => startNewRound()}
+              onNextGame={() => {
+                const nextCandidate = selectNextGame('random', rng.current);
+                setSelectedGameSetting('random');
+                startNewRound(nextCandidate.id);
+              }}
+              onClose={() => {
+                sound.stopBGM();
+                sound.stopTrainSound();
+                setUiMode('COLLAPSING');
+              }}
+            />
+
+            {/* Bottom Disclaimer Strip required by spec */}
+            <div className="game-footer-strip">
+              This is a game. Not real security.
             </div>
-
-            {/* Win Screen Overlay */}
-            {showWin && <WinScreen />}
-          </>
+          </div>
         )}
       </GameOverlay>
     </>
