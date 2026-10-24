@@ -95,8 +95,14 @@ img { image-rendering: pixelated; }
 }
 
 /* ===== CAPTCHA WIDGET ===== */
-.captcha-container {
-  display: flex; justify-content: center; width: 100%; margin: 4px 0;
+.captcha-container, .captcha-only-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin: 0;
+  gap: 12px;
 }
 
 .captcha-box {
