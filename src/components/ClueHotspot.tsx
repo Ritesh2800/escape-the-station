@@ -16,28 +16,9 @@ export function ClueHotspot({ clue, era, trainPhase, isOpen, onOpen, onClose }: 
   const [typedText, setTypedText] = useState('');
   const timerRef = useRef<number>(0);
 
-  // Only show hotspot if it belongs to current era
-  if (clue.era !== era) return null;
-
-  const handleClick = () => {
-    sound.playClick(1.1);
-    if (isOpen) {
-      onClose();
-      return;
-    }
-
-    if (clue.requiresDocked && trainPhase !== 'DOCKED') {
-      // Show "train is gone" message
-      onOpen(clue.id);
-      return;
-    }
-
-    onOpen(clue.id);
-  };
-
   // Typewriter effect for popup text
   useEffect(() => {
-    if (!isOpen) {
+    if (!isOpen || clue.era !== era) {
       setTypedText('');
       return;
     }
@@ -62,7 +43,26 @@ export function ClueHotspot({ clue, era, trainPhase, isOpen, onOpen, onClose }: 
     return () => {
       clearTimeout(timerRef.current);
     };
-  }, [isOpen, clue.text, clue.requiresDocked, trainPhase]);
+  }, [isOpen, clue.text, clue.requiresDocked, clue.era, era, trainPhase]);
+
+  // Only show hotspot if it belongs to current era
+  if (clue.era !== era) return null;
+
+  const handleClick = () => {
+    sound.playClick(1.1);
+    if (isOpen) {
+      onClose();
+      return;
+    }
+
+    if (clue.requiresDocked && trainPhase !== 'DOCKED') {
+      // Show "train is gone" message
+      onOpen(clue.id);
+      return;
+    }
+
+    onOpen(clue.id);
+  };
 
   // Position popup to the right of hotspot, or left if near right edge
   const popupLeft = clue.x > 0.7 ? 'auto' : '36px';

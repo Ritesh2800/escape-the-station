@@ -1,51 +1,46 @@
 import { useRef, useCallback, useEffect } from 'react';
-import { TRAIN } from './config';
-import type { TrainPhase } from './state';
+import { GAME_RULES } from './config';
 
 /**
- * Train loop hook (Section 5)
- * ARRIVING(3s) → DOCKED(45s) → DEPARTING(15s) → EMPTY(5s) → repeat
+ * 30-Second Countdown & Departure Hook
+ * Runs when game is EXPANDED.
+ * If 30 seconds elapse, triggers onTimeout.
  */
 
-const PHASE_ORDER: TrainPhase[] = ['ARRIVING', 'DOCKED', 'DEPARTING', 'EMPTY'];
-const PHASE_DURATION: Record<TrainPhase, number> = {
-  ARRIVING: TRAIN.ARRIVE_MS,
-  DOCKED: TRAIN.DOCKED_MS,
-  DEPARTING: TRAIN.DEPART_MS,
-  EMPTY: TRAIN.EMPTY_MS,
-};
-
-export function useTrainLoop(
+export function useTrainCountdown(
   active: boolean,
-  onPhaseChange: (phase: TrainPhase, timeLeft: number) => void
+  onTick: (secondsLeft: number) => void,
+  onTimeout: () => void
 ) {
-  const phaseRef = useRef<TrainPhase>('EMPTY');
-  const phaseStartRef = useRef(0);
-  const rafRef = useRef(0);
-  const frozenRef = useRef(false);
+  const startTimeRef = useRef<number>(0);
+  const rafRef = useRef<number>(0);
+  const frozenRef = useRef<boolean>(false);
+  const timedOutRef = useRef<boolean>(false);
 
   const freeze = useCallback(() => {
     frozenRef.current = true;
+    cancelAnimationFrame(rafRef.current);
   }, []);
 
   const tick = useCallback(() => {
-    if (frozenRef.current) return;
-    
+    if (frozenRef.current || timedOutRef.current) return;
+
     const now = performance.now();
-    const elapsed = now - phaseStartRef.current;
-    const duration = PHASE_DURATION[phaseRef.current];
-    const timeLeft = Math.max(0, duration - elapsed);
+    const elapsedMs = now - startTimeRef.current;
+    const totalMs = GAME_RULES.TOTAL_TIME_SEC * 1000;
+    const remainingMs = Math.max(0, totalMs - elapsedMs);
+    const secondsLeft = Math.ceil(remainingMs / 1000);
 
-    onPhaseChange(phaseRef.current, timeLeft);
+    onTick(secondsLeft);
 
-    if (elapsed >= duration) {
-      const idx = PHASE_ORDER.indexOf(phaseRef.current);
-      phaseRef.current = PHASE_ORDER[(idx + 1) % PHASE_ORDER.length];
-      phaseStartRef.current = now;
+    if (remainingMs <= 0) {
+      timedOutRef.current = true;
+      onTimeout();
+      return;
     }
 
     rafRef.current = requestAnimationFrame(tick);
-  }, [onPhaseChange]);
+  }, [onTick, onTimeout]);
 
   useEffect(() => {
     if (!active) {
@@ -54,14 +49,16 @@ export function useTrainLoop(
     }
 
     frozenRef.current = false;
-    phaseRef.current = 'ARRIVING';
-    phaseStartRef.current = performance.now();
+    timedOutRef.current = false;
+    startTimeRef.current = performance.now();
+    onTick(GAME_RULES.TOTAL_TIME_SEC);
+
     rafRef.current = requestAnimationFrame(tick);
 
     return () => {
       cancelAnimationFrame(rafRef.current);
     };
-  }, [active, tick]);
+  }, [active, tick, onTick]);
 
   return { freeze };
 }

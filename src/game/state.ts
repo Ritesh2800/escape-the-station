@@ -1,86 +1,117 @@
 import { useReducer, useCallback } from 'react';
+import { GAME_RULES } from './config';
 
 export type Era = 'past' | 'present' | 'future';
-export type TrainPhase = 'ARRIVING' | 'DOCKED' | 'DEPARTING' | 'EMPTY';
-export type Level = 1 | 2;
+export type TrainPhase = 'DOCKED' | 'DEPARTING' | 'EMPTY';
 export type UiMode = 'COLLAPSED' | 'EXPANDING' | 'EXPANDED' | 'COLLAPSING';
+
+const ERAS: Era[] = ['past', 'present', 'future'];
+
+export function getRandomEra(): Era {
+  return ERAS[Math.floor(Math.random() * ERAS.length)];
+}
 
 export interface GameState {
   uiMode: UiMode;
-  level: Level;
   era: Era;
   trainPhase: TrainPhase;
-  phaseTimeLeft: number;
-  input: string;
-  ruleResults: Record<string, boolean>;
-  openPopupId: string | null;
+  timeLeft: number;
+  activeStage: 0 | 1 | 2;
+  stageValues: [string, string, string];
+  solvedStages: [boolean, boolean, boolean];
   solved: boolean;
+  isExpired: boolean;
   inputRect: DOMRect | null;
-  level1Won: boolean;
-  showInterstitial: boolean;
 }
 
 type GameAction =
-  | { type: 'START_EXPAND'; inputRect: DOMRect }
+  | { type: 'START_EXPAND'; inputRect: DOMRect; era?: Era }
   | { type: 'FINISH_EXPAND' }
   | { type: 'START_COLLAPSE' }
   | { type: 'FINISH_COLLAPSE' }
+  | { type: 'SET_TIME_LEFT'; timeLeft: number }
+  | { type: 'SET_STAGE_INPUT'; stage: 0 | 1 | 2; value: string }
+  | { type: 'STAGE_PASSED'; stage: 0 | 1 | 2 }
+  | { type: 'STAGE_FAILED'; stage: 0 | 1 | 2 }
+  | { type: 'GAME_TIMEOUT' }
   | { type: 'SOLVE' }
-  | { type: 'RESET' }
-  | { type: 'SET_INPUT'; value: string }
-  | { type: 'SET_ERA'; era: Era }
-  | { type: 'SET_TRAIN_PHASE'; phase: TrainPhase; timeLeft: number }
-  | { type: 'SET_POPUP'; id: string | null }
-  | { type: 'SET_RULES'; results: Record<string, boolean> }
-  | { type: 'WIN_LEVEL1' }
-  | { type: 'START_LEVEL2' }
-  | { type: 'SET_LEVEL'; level: Level };
+  | { type: 'RESET' };
 
 const initialState: GameState = {
   uiMode: 'COLLAPSED',
-  level: 1,
   era: 'present',
-  trainPhase: 'EMPTY',
-  phaseTimeLeft: 0,
-  input: '',
-  ruleResults: {},
-  openPopupId: null,
+  trainPhase: 'DOCKED',
+  timeLeft: GAME_RULES.TOTAL_TIME_SEC,
+  activeStage: 0,
+  stageValues: ['', '', ''],
+  solvedStages: [false, false, false],
   solved: false,
+  isExpired: false,
   inputRect: null,
-  level1Won: false,
-  showInterstitial: false,
 };
 
 function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
-    case 'START_EXPAND':
-      return { ...state, uiMode: 'EXPANDING', inputRect: action.inputRect };
+    case 'START_EXPAND': {
+      // Pick random era if not provided
+      const chosenEra = action.era || getRandomEra();
+      return {
+        ...initialState,
+        uiMode: 'EXPANDING',
+        inputRect: action.inputRect,
+        era: chosenEra,
+        trainPhase: 'DOCKED',
+        timeLeft: GAME_RULES.TOTAL_TIME_SEC,
+        isExpired: false,
+      };
+    }
     case 'FINISH_EXPAND':
       return { ...state, uiMode: 'EXPANDED' };
     case 'START_COLLAPSE':
       return { ...state, uiMode: 'COLLAPSING' };
     case 'FINISH_COLLAPSE':
       return { ...state, uiMode: 'COLLAPSED' };
+    case 'SET_TIME_LEFT':
+      return { ...state, timeLeft: action.timeLeft };
+    case 'SET_STAGE_INPUT': {
+      const nextValues = [...state.stageValues] as [string, string, string];
+      nextValues[action.stage] = action.value;
+      return { ...state, stageValues: nextValues };
+    }
+    case 'STAGE_PASSED': {
+      const nextSolved = [...state.solvedStages] as [boolean, boolean, boolean];
+      nextSolved[action.stage] = true;
+      const nextStage = (Math.min(2, action.stage + 1)) as 0 | 1 | 2;
+      return {
+        ...state,
+        solvedStages: nextSolved,
+        activeStage: nextStage,
+      };
+    }
+    case 'STAGE_FAILED': {
+      const nextValues = [...state.stageValues] as [string, string, string];
+      nextValues[action.stage] = '';
+      return { ...state, stageValues: nextValues };
+    }
+    case 'GAME_TIMEOUT':
+      return {
+        ...state,
+        isExpired: true,
+        trainPhase: 'DEPARTING',
+        timeLeft: 0,
+      };
     case 'SOLVE':
-      return { ...state, solved: true };
+      return {
+        ...state,
+        solved: true,
+        trainPhase: 'DOCKED',
+        solvedStages: [true, true, true],
+      };
     case 'RESET':
-      return { ...initialState };
-    case 'SET_INPUT':
-      return { ...state, input: action.value };
-    case 'SET_ERA':
-      return { ...state, era: action.era, openPopupId: null };
-    case 'SET_TRAIN_PHASE':
-      return { ...state, trainPhase: action.phase, phaseTimeLeft: action.timeLeft };
-    case 'SET_POPUP':
-      return { ...state, openPopupId: action.id };
-    case 'SET_RULES':
-      return { ...state, ruleResults: action.results };
-    case 'WIN_LEVEL1':
-      return { ...state, level1Won: true, showInterstitial: true, input: '' };
-    case 'START_LEVEL2':
-      return { ...state, level: 2, showInterstitial: false, input: '' };
-    case 'SET_LEVEL':
-      return { ...state, level: action.level, input: '' };
+      return {
+        ...initialState,
+        era: getRandomEra(),
+      };
     default:
       return state;
   }
@@ -89,8 +120,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
 export function useGameState() {
   const [state, dispatch] = useReducer(gameReducer, initialState);
 
-  const startExpand = useCallback((inputRect: DOMRect) => {
-    dispatch({ type: 'START_EXPAND', inputRect });
+  const startExpand = useCallback((inputRect: DOMRect, customEra?: Era) => {
+    dispatch({ type: 'START_EXPAND', inputRect, era: customEra });
   }, []);
   const finishExpand = useCallback(() => dispatch({ type: 'FINISH_EXPAND' }), []);
   const startCollapse = useCallback(() => dispatch({ type: 'START_COLLAPSE' }), []);

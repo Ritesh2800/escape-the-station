@@ -25,7 +25,7 @@ export function GameOverlay({
   // EXPAND
   useEffect(() => {
     if (uiMode !== 'EXPANDING' || isTransitioningRef.current) return;
-    const inputEl = document.getElementById('password-field');
+    const inputEl = document.getElementById('captcha-box') || document.getElementById('password-field');
     const gameEl = overlayRef.current;
     if (!inputEl || !gameEl) return;
 
@@ -41,7 +41,7 @@ export function GameOverlay({
   // COLLAPSE
   const handleCollapse = useCallback(() => {
     if (isTransitioningRef.current) return;
-    const inputEl = document.getElementById('password-field');
+    const inputEl = document.getElementById('captcha-box') || document.getElementById('password-field');
     const gameEl = overlayRef.current;
     if (!inputEl || !gameEl) return;
 

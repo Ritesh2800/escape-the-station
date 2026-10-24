@@ -15,10 +15,19 @@ const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Colour of a block when it looks like the plain input
+// Colour of a block when it looks like the plain input or captcha box
 function inputColor(r: number, c: number, rows: number, cols: number): string {
   const edge = r === 0 || c === 0 || r === rows - 1 || c === cols - 1;
-  return edge ? pick(['#d1d5db', '#d1d5db', '#2563eb']) : pick(['#ffffff', '#ffffff', '#f3f4f6']);
+  if (edge) return pick(['#d1d5db', '#cbd5e1', '#9ca3af']);
+  // Near right edge where captcha brand logo sits
+  if (c >= cols - 8 && r <= 4 && Math.random() < 0.35) {
+    return pick(['#1a73e8', '#4285f4']);
+  }
+  // Near left edge where checkbox sits
+  if (c <= 4 && r >= 2 && r <= rows - 3 && (c === 1 || c === 4 || r === 2 || r === rows - 3) && Math.random() < 0.4) {
+    return '#94a3b8';
+  }
+  return pick(['#ffffff', '#ffffff', '#f8fafc', '#f1f5f9']);
 }
 
 // Colour of a block when it looks like the game panel

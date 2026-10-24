@@ -1,26 +1,18 @@
-import { useMemo } from 'react';
-
-interface WinScreenProps {
-  level: 1 | 2;
-}
-
 const CONFETTI_COLORS = ['#4ade80', '#ffd445', '#3aa0e0', '#ff5de0', '#4ff0ff', '#ef4444', '#f59e0b'];
 
-export function WinScreen({ level }: WinScreenProps) {
-  const confetti = useMemo(() => {
-    return Array.from({ length: 40 }, (_, i) => ({
-      id: i,
-      left: Math.random() * 100,
-      delay: Math.random() * 1.5,
-      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-      size: 4 + Math.random() * 8,
-    }));
-  }, []);
+const CONFETTI_PIECES = Array.from({ length: 40 }, (_, i) => ({
+  id: i,
+  left: (i * 17 + 7) % 100,
+  delay: ((i * 0.13) % 1.5).toFixed(2),
+  color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+  size: 4 + ((i * 3) % 8),
+}));
 
+export function WinScreen() {
   return (
     <div className="win-overlay">
       <div className="confetti-container">
-        {confetti.map((c) => (
+        {CONFETTI_PIECES.map((c) => (
           <div
             key={c.id}
             className="confetti-piece"
@@ -34,13 +26,9 @@ export function WinScreen({ level }: WinScreenProps) {
           />
         ))}
       </div>
-      <div className="win-title">
-        {level === 1 ? 'ACCESS GRANTED' : 'VAULT OPEN'}
-      </div>
+      <div className="win-title">ACCESS GRANTED</div>
       <div className="win-subtitle">
-        {level === 1
-          ? 'Door unlocked — Chrono-Shift Device coming online...'
-          : 'Password cracked — you escaped the station!'}
+        Passcode 072516 Accepted — Human Verification Complete!
       </div>
     </div>
   );

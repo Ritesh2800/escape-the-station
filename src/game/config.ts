@@ -1,20 +1,40 @@
-// Game configuration constants (Sections 4, 5, 9)
-export const TRAIN = {
-  DOCKED_MS: 45000,
-  DEPART_MS: 15000,
-  ARRIVE_MS: 3000,
-  EMPTY_MS: 5000,
-  ENGINE_W: 80,
-  ENGINE_H: 50,
-  CARRIAGE_W: 60,
-  CARRIAGE_H: 45,
-  CARRIAGE_COUNT: 7,
+// Game configuration constants for Carriage-Based Station Escape
+export const GAME_RULES = {
+  TOTAL_TIME_SEC: 30, // Max 30s to complete the game
+  STAGE_TARGETS: ['07', '25', '16'] as const,
+  FULL_PIN: '072516',
 };
 
-export const ERA_COLORS = {
-  past: { accent: '#e8b84a', label: '1890', bg: '#5c3a1e' },
-  present: { accent: '#3aa0e0', label: 'NOW', bg: '#3aa0e0' },
-  future: { accent: '#4ff0ff', label: '2080', bg: '#1a0a3e' },
+export const TRAIN_SPECS = {
+  ENGINE_W: 220,
+  CARRIAGE_W: 260,
+  COUPLING_W: 8,
+  TRAIN_H: 160,
+  CARRIAGE_COUNT: 3,
+};
+
+export const ERA_INFO = {
+  past: {
+    label: '1890',
+    name: 'Victorian Steam',
+    accent: '#e8b84a',
+    bg: '#2c1e14',
+    textColor: '#f4ead2',
+  },
+  present: {
+    label: 'NOW',
+    name: 'Commuter Express',
+    accent: '#7c6ca7',
+    bg: '#0f172a',
+    textColor: '#f8fafc',
+  },
+  future: {
+    label: '2080',
+    name: 'Cyber Maglev',
+    accent: '#06b6d4',
+    bg: '#0d0722',
+    textColor: '#e0f2fe',
+  },
 } as const;
 
 export const PALETTE = {
@@ -25,31 +45,6 @@ export const PALETTE = {
   warning: '#ffd445',
 } as const;
 
-export const ANIMATION = {
-  EXPAND_DURATION_MS: 800,
-  EXPAND_EASING: 'cubic-bezier(0.22, 1, 0.36, 1)',
-  COLLAPSE_DURATION_MS: 800,
-  GLITCH_DURATION_MS: 400,
-} as const;
-
-// Level 1 target
-export const LEVEL1_TARGET = '072516';
-
-// Level 2 target (canonical)
-export const LEVEL2_TARGET = '@S2!E8';
-
-// Train colors per era for placeholder rectangles
-export const TRAIN_ERA_COLORS = {
-  past: { engine: '#7a2e2e', carriage: '#8b4513' },
-  present: { engine: '#4a7ab5', carriage: '#5588bb' },
-  future: { engine: '#2a1a5e', carriage: '#3d2d7a' },
-} as const;
-
-// Layout zones (Section 3.1) as percentages of 1280x720
 export const ZONES = {
-  TRACK_Y_START: 515 / 720,
-  TRACK_Y_END: 560 / 720,
-  PLATFORM_Y: 560 / 720,
-  STATION_ROOM_X_END: 315 / 1280,
-  TRAIN_DOCK_X: 340 / 1280,
+  TRACK_Y_PERCENT: 520 / 720,
 } as const;

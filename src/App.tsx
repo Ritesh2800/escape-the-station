@@ -1,150 +1,185 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { PasswordField } from './components/PasswordField';
+import { CaptchaCard } from './components/CaptchaCard';
 import { GameOverlay } from './components/GameOverlay';
 import { Scene } from './components/Scene';
 import { Train } from './components/Train';
 import { HUD } from './components/HUD';
 import { Keypad } from './components/Keypad';
-import { ClueHotspot } from './components/ClueHotspot';
-import { EraToggle } from './components/EraToggle';
-import { RuleList } from './components/RuleList';
 import { WinScreen } from './components/WinScreen';
-import { useGameState } from './game/state';
-import { useTrainLoop } from './game/trainLoop';
-import { LEVEL1_CLUES, LEVEL2_CLUES, getCluesForEra } from './game/levels';
-import { validateAll, validateLevel1Segments, VALIDATORS } from './game/validators';
-import { LEVEL1_TARGET } from './game/config';
+import { useGameState, getRandomEra } from './game/state';
+import { useTrainCountdown } from './game/trainLoop';
+import { GAME_RULES } from './game/config';
 import { sound } from './game/audio';
-import type { Era, TrainPhase } from './game/state';
 
 export default function App() {
-  const { state, dispatch, startExpand, finishExpand, startCollapse, finishCollapse, solve, reset } = useGameState();
+  const {
+    state,
+    dispatch,
+    startExpand,
+    finishExpand,
+    startCollapse,
+    finishCollapse,
+    solve,
+    reset,
+  } = useGameState();
+
   const [showWin, setShowWin] = useState(false);
-  const [isGlitching, setIsGlitching] = useState(false);
-  const [stageSize, setStageSize] = useState({ width: 1280, height: 720 });
-  const gameInputRef = useRef<HTMLInputElement>(null);
+  const [isShaking, setIsShaking] = useState(false);
+  const [windowWidth, setWindowWidth] = useState(
+    typeof window !== 'undefined' ? window.innerWidth : 1280
+  );
   const shakeTimeoutRef = useRef<number>(0);
-  const prevPassedCountRef = useRef<number>(0);
-  const prevTrainPhaseRef = useRef<TrainPhase>(state.trainPhase);
 
-  // Train loop
-  const onPhaseChange = useCallback((phase: TrainPhase, timeLeft: number) => {
-    dispatch({ type: 'SET_TRAIN_PHASE', phase, timeLeft });
-  }, [dispatch]);
+  // Track window resize to center active carriage precisely
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
-  const { freeze: freezeTrain } = useTrainLoop(
-    state.uiMode === 'EXPANDED',
-    onPhaseChange
+  // 30-Second Countdown Hook
+  const onTick = useCallback(
+    (secondsLeft: number) => {
+      dispatch({ type: 'SET_TIME_LEFT', timeLeft: secondsLeft });
+    },
+    [dispatch]
   );
 
-  // Train sound effects on phase change
-  useEffect(() => {
-    if (state.uiMode !== 'EXPANDED') return;
-    if (state.trainPhase !== prevTrainPhaseRef.current) {
-      prevTrainPhaseRef.current = state.trainPhase;
-      if (state.trainPhase === 'ARRIVING' || state.trainPhase === 'DEPARTING') {
-        sound.playTrainWhistle();
-        sound.startTrainSound();
-      } else {
-        sound.stopTrainSound();
-      }
-    }
-  }, [state.trainPhase, state.uiMode]);
+  const onTimeout = useCallback(() => {
+    sound.playTrainWhistle();
+    sound.startTrainSound();
+    dispatch({ type: 'GAME_TIMEOUT' });
 
-  // Level 1 segment badges
-  const l1Segments = state.level === 1 ? validateLevel1Segments(state.input) : {};
+    // After train speeds away (1.8s), shrink back to captcha box
+    setTimeout(() => {
+      sound.stopTrainSound();
+      sound.stopBGM();
+      startCollapse();
+    }, 1800);
+  }, [dispatch, startCollapse]);
 
-  // Level 2 rule results
-  useEffect(() => {
-    if (state.level === 2 && state.input.length > 0) {
-      const results = validateAll(state.input);
-      dispatch({ type: 'SET_RULES', results });
-      const passCount = Object.values(results).filter(Boolean).length;
-      if (passCount > prevPassedCountRef.current) {
-        sound.playRulePass();
-      }
-      prevPassedCountRef.current = passCount;
-    } else {
-      prevPassedCountRef.current = 0;
-    }
-  }, [state.input, state.level, dispatch]);
+  const { freeze: freezeCountdown } = useTrainCountdown(
+    state.uiMode === 'EXPANDED' && !state.solved,
+    onTick,
+    onTimeout
+  );
 
-  const handleExpand = useCallback((rect: DOMRect) => {
-    sound.playClick(1.2);
-    startExpand(rect);
-  }, [startExpand]);
+  // Expand with randomized era
+  const handleExpand = useCallback(
+    (rect: DOMRect) => {
+      sound.playClick(1.2);
+      const randomEra = getRandomEra();
+      startExpand(rect, randomEra);
+    },
+    [startExpand]
+  );
 
   const handleExpandComplete = useCallback(() => {
     finishExpand();
     sound.startBGM();
-    // Focus game input after expand
-    setTimeout(() => {
-      gameInputRef.current?.focus();
-    }, 100);
   }, [finishExpand]);
-
-  // Level 1 input change
-  const handleL1Input = useCallback((value: string) => {
-    dispatch({ type: 'SET_INPUT', value });
-
-    // Check win when 6 digits entered
-    if (value.length === 6) {
-      if (value === LEVEL1_TARGET) {
-        // WIN Level 1
-        setShowWin(true);
-        sound.playVictoryFanfare();
-        freezeTrain();
-        setTimeout(() => {
-          setShowWin(false);
-          dispatch({ type: 'WIN_LEVEL1' });
-          // Show interstitial then start Level 2
-          setTimeout(() => {
-            dispatch({ type: 'START_LEVEL2' });
-          }, 1500);
-        }, 2000);
-      } else {
-        // Shake the display
-        triggerShake();
-      }
-    }
-  }, [dispatch, freezeTrain]);
-
-  // Level 2 input change
-  const handleL2Input = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    if (val.length <= 6) {
-      sound.playClick(1.0 + val.length * 0.05);
-      dispatch({ type: 'SET_INPUT', value: val });
-    }
-  }, [dispatch]);
-
-  // Check Level 2 win
-  useEffect(() => {
-    if (state.level === 2 && state.input.length > 0) {
-      const results = validateAll(state.input);
-      const allPass = VALIDATORS.every(v => results[v.id]);
-      if (allPass && !showWin && !state.solved) {
-        setShowWin(true);
-        sound.playVictoryFanfare();
-        freezeTrain();
-        setTimeout(() => {
-          solve();
-          setTimeout(() => {
-            setShowWin(false);
-            sound.stopBGM();
-            sound.stopTrainSound();
-            startCollapse();
-          }, 2000);
-        }, 1500);
-      }
-    }
-  }, [state.input, state.level, state.solved, showWin, freezeTrain, solve, startCollapse]);
 
   const handleCollapseComplete = useCallback(() => {
     sound.stopBGM();
     sound.stopTrainSound();
     finishCollapse();
   }, [finishCollapse]);
+
+  // Shake animation trigger on incorrect input
+  const triggerShake = useCallback(() => {
+    sound.playError();
+    setIsShaking(true);
+    clearTimeout(shakeTimeoutRef.current);
+    shakeTimeoutRef.current = window.setTimeout(() => {
+      setIsShaking(false);
+    }, 350);
+  }, []);
+
+  // Handle digit entry on active carriage
+  const handleDigit = useCallback(
+    (digit: string) => {
+      if (state.solved || state.isExpired || state.trainPhase === 'DEPARTING') {
+        return;
+      }
+
+      const currentStage = state.activeStage;
+      const currentVal = state.stageValues[currentStage] || '';
+
+      if (currentVal.length >= 2) return;
+
+      const newVal = currentVal + digit;
+      dispatch({ type: 'SET_STAGE_INPUT', stage: currentStage, value: newVal });
+
+      // When 2 digits entered, check match against stage target
+      if (newVal.length === 2) {
+        const target = GAME_RULES.STAGE_TARGETS[currentStage];
+
+        if (newVal === target) {
+          // Success!
+          sound.playRulePass();
+          dispatch({ type: 'STAGE_PASSED', stage: currentStage });
+
+          // If last stage (Stage 2) completed -> WIN!
+          if (currentStage === 2) {
+            freezeCountdown();
+            setShowWin(true);
+            sound.playVictoryFanfare();
+
+            setTimeout(() => {
+              solve();
+              setTimeout(() => {
+                setShowWin(false);
+                sound.stopBGM();
+                sound.stopTrainSound();
+                startCollapse();
+              }, 2200);
+            }, 1800);
+          }
+        } else {
+          // Wrong 2-digit code for this carriage -> Shake and clear
+          triggerShake();
+          setTimeout(() => {
+            dispatch({ type: 'STAGE_FAILED', stage: currentStage });
+          }, 350);
+        }
+      }
+    },
+    [
+      state.solved,
+      state.isExpired,
+      state.trainPhase,
+      state.activeStage,
+      state.stageValues,
+      dispatch,
+      freezeCountdown,
+      solve,
+      startCollapse,
+      triggerShake,
+    ]
+  );
+
+  // Backspace on active carriage
+  const handleBackspace = useCallback(() => {
+    if (state.solved || state.isExpired || state.trainPhase === 'DEPARTING') {
+      return;
+    }
+    const currentStage = state.activeStage;
+    const currentVal = state.stageValues[currentStage] || '';
+    if (currentVal.length > 0) {
+      dispatch({
+        type: 'SET_STAGE_INPUT',
+        stage: currentStage,
+        value: currentVal.slice(0, -1),
+      });
+    }
+  }, [
+    state.solved,
+    state.isExpired,
+    state.trainPhase,
+    state.activeStage,
+    state.stageValues,
+    dispatch,
+  ]);
 
   // ESC key to return to login
   useEffect(() => {
@@ -160,67 +195,11 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [state.uiMode, startCollapse]);
 
-  // Era change with glitch
-  const handleEraChange = useCallback((era: Era) => {
-    if (era === state.era) return;
-    setIsGlitching(true);
-    sound.playGlitchWarp();
-    dispatch({ type: 'SET_POPUP', id: null });
-    setTimeout(() => {
-      dispatch({ type: 'SET_ERA', era });
-      setIsGlitching(false);
-    }, 400);
-  }, [state.era, dispatch]);
-
-  // Hotspot open/close
-  const handleOpenPopup = useCallback((id: string) => {
-    dispatch({ type: 'SET_POPUP', id });
-  }, [dispatch]);
-  const handleClosePopup = useCallback(() => {
-    dispatch({ type: 'SET_POPUP', id: null });
-  }, [dispatch]);
-
-  // Shake input on wrong answer
-  const triggerShake = () => {
-    sound.playError();
-    const el = document.querySelector('.keypad-digits');
-    if (el) {
-      el.classList.add('shake');
-      clearTimeout(shakeTimeoutRef.current);
-      shakeTimeoutRef.current = window.setTimeout(() => {
-        el.classList.remove('shake');
-      }, 300);
-    }
-  };
-
-  // Track stage size for Train positioning
-  const handleStageResize = useCallback((entries: ResizeObserverEntry[]) => {
-    const entry = entries[0];
-    if (entry) {
-      setStageSize({ width: entry.contentRect.width, height: entry.contentRect.height });
-    }
-  }, []);
-
-  // Observe scene stage size
-  useEffect(() => {
-    if (state.uiMode !== 'EXPANDED') return;
-    const el = document.querySelector('.scene-stage');
-    if (!el) return;
-    const obs = new ResizeObserver(handleStageResize);
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [state.uiMode, handleStageResize]);
-
-  // Get current clues
-  const currentClues = state.level === 1 ? LEVEL1_CLUES : LEVEL2_CLUES;
-  const visibleClues = getCluesForEra(currentClues, state.era);
-
-  const rulePassCount = Object.values(state.ruleResults).filter(Boolean).length;
-
   return (
     <>
-      <PasswordField
+      <CaptchaCard
         solved={state.solved && state.uiMode === 'COLLAPSED'}
+        isExpired={state.isExpired && state.uiMode === 'COLLAPSED'}
         onExpand={handleExpand}
         onReset={reset}
       />
@@ -229,119 +208,66 @@ export default function App() {
         uiMode={state.uiMode}
         inputRect={state.inputRect}
         era={state.era}
-        isGlitching={isGlitching}
+        isGlitching={false}
         onExpandComplete={handleExpandComplete}
         onCollapseComplete={handleCollapseComplete}
         onSolve={() => {}}
       >
         {state.uiMode !== 'COLLAPSED' && (
           <>
-            {/* Fullscreen Scene taking entire viewport */}
-            <Scene era={state.era} isGlitching={isGlitching}>
-              {/* Train */}
+            {/* Fullscreen Scene covering entire viewport */}
+            <Scene era={state.era} isGlitching={false}>
+              {/* Train with Sprites & Carriage Clues */}
               <Train
                 era={state.era}
                 phase={state.trainPhase}
-                timeLeft={state.phaseTimeLeft}
-                stageWidth={stageSize.width}
-                stageHeight={stageSize.height}
+                activeStage={state.activeStage}
+                solvedStages={state.solvedStages}
+                stageWidth={windowWidth}
               />
-
-              {/* Clue Hotspots */}
-              {visibleClues.map(clue => (
-                <ClueHotspot
-                  key={clue.id}
-                  clue={clue}
-                  era={state.era}
-                  trainPhase={state.trainPhase}
-                  isOpen={state.openPopupId === clue.id}
-                  onOpen={handleOpenPopup}
-                  onClose={handleClosePopup}
-                />
-              ))}
             </Scene>
 
-            {/* Floating HUD & Password / Keypad Overlay directly on the main train background */}
+            {/* Floating HUD & Compact Keypad Overlay */}
             <div className="game-hud-overlay">
-              {/* Warning Banner */}
-              <div className="warning-banner">
-                ⚠ SECURITY NOTE: THIS IS A GAME. DO NOT ENTER ANY REAL PASSWORD. ⚠
+              {/* Top Warning Banner */}
+              <div
+                className={`warning-banner ${
+                  state.isExpired ? 'expired-banner' : ''
+                }`}
+              >
+                {state.isExpired
+                  ? '⚠ 30s TIME EXPIRED — THE TRAIN HAS DEPARTED! ⚠'
+                  : '▲ INVESTIGATE THE ACTIVE CARRIAGE FOR THE 2-DIGIT CODE ▲'}
               </div>
 
-              {/* Floating Game Panel */}
-              <div className="game-panel floating-panel">
-                <div className="game-panel-row">
-                  <HUD
-                    phase={state.trainPhase}
-                    timeLeft={state.phaseTimeLeft}
-                    level={state.level}
-                    rulePassCount={rulePassCount}
-                    ruleTotalCount={VALIDATORS.length}
-                  />
-                  <EraToggle
-                    era={state.era}
-                    locked={state.level === 1}
-                    onChange={handleEraChange}
-                  />
-                </div>
+              {/* Slim Top Bar: Timeline, Timer, Controls */}
+              <HUD
+                era={state.era}
+                timeLeft={state.timeLeft}
+                activeStage={state.activeStage}
+                isDeparting={state.trainPhase === 'DEPARTING'}
+                onExit={() => {
+                  sound.stopBGM();
+                  sound.stopTrainSound();
+                  startCollapse();
+                }}
+              />
 
-                {state.level === 1 ? (
-                  /* Level 1: Keypad + Segment Badges */
-                  <div className="game-panel-row" style={{ flexDirection: 'column', gap: 6 }}>
-                    <Keypad
-                      value={state.input}
-                      maxLength={6}
-                      onChange={handleL1Input}
-                    />
-                    <div className="badge-row">
-                      {(['PLATFORM', 'RULEBOOK', 'BOXCAR'] as const).map(seg => {
-                        const status = l1Segments[seg] || 'pending';
-                        return (
-                          <span key={seg} className={`badge ${status}`}>
-                            {status === 'pass' ? '✓' : status === 'fail' ? '✗' : '○'} {seg}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  /* Level 2: Text Input + Rule List */
-                  <div className="game-panel-row" style={{ flexDirection: 'column', gap: 6, alignItems: 'center' }}>
-                    <div className="game-input-wrapper">
-                      <input
-                        ref={gameInputRef}
-                        type="text"
-                        className="game-input"
-                        placeholder="ENTER CODE..."
-                        value={state.input}
-                        onChange={handleL2Input}
-                        maxLength={6}
-                        autoFocus
-                        id="game-input-field"
-                        autoComplete="off"
-                      />
-                      <span style={{
-                        position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                        fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'rgba(244,234,210,.6)',
-                      }}>
-                        {state.input.length}/6
-                      </span>
-                    </div>
-                    <RuleList results={state.ruleResults} input={state.input} />
-                  </div>
-                )}
+              {/* Compact Keypad Console - only ~220px wide! */}
+              <div className="keypad-console">
+                <Keypad
+                  activeStage={state.activeStage}
+                  stageValues={state.stageValues}
+                  solvedStages={state.solvedStages}
+                  onDigit={handleDigit}
+                  onBackspace={handleBackspace}
+                  isShaking={isShaking}
+                />
               </div>
             </div>
 
             {/* Win Screen Overlay */}
-            {showWin && <WinScreen level={state.level} />}
-
-            {/* Interstitial */}
-            {state.showInterstitial && (
-              <div className="interstitial-overlay">
-                <div className="interstitial-text">CHRONO-SHIFT DEVICE ONLINE</div>
-              </div>
-            )}
+            {showWin && <WinScreen />}
           </>
         )}
       </GameOverlay>

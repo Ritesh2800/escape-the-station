@@ -1,139 +1,194 @@
 import type { Era, TrainPhase } from '../game/state';
-import { TRAIN, TRAIN_ERA_COLORS, ZONES } from '../game/config';
+import { getCarriageCluesForEra } from '../game/levels';
+
+import enginePast from '../assets/engine_past.png';
+import carriagePast from '../assets/carriage_past.png';
+import enginePresent from '../assets/engine_present.png';
+import carriagePresent from '../assets/carriage_present.png';
+import engineFuture from '../assets/engine_future.png';
+import carriageFuture from '../assets/carriage_future.png';
 
 interface TrainProps {
   era: Era;
   phase: TrainPhase;
-  timeLeft: number;
+  activeStage: 0 | 1 | 2;
+  solvedStages: [boolean, boolean, boolean];
   stageWidth: number;
-  stageHeight: number;
 }
 
-export function Train({ era, phase, timeLeft, stageWidth, stageHeight }: TrainProps) {
-  const colors = TRAIN_ERA_COLORS[era];
-  const engineW = TRAIN.ENGINE_W;
-  const carriageW = TRAIN.CARRIAGE_W;
-  const carriageCount = TRAIN.CARRIAGE_COUNT;
-  const totalW = engineW + carriageW * carriageCount;
-  const trainH = TRAIN.ENGINE_H;
+const TRAIN_DATA = {
+  past: {
+    engine: enginePast,
+    carriage: carriagePast,
+    engineAspect: 126 / 56, // ~2.25
+    carriageAspect: 1009 / 421, // ~2.40
+    carriageHeight: 240,
+    engineHeight: 330, // scaled so steam cab matches carriage roof height including smoke
+    couplerOverlap: 28, // overlap bumper platforms flush
+    trackBottomPercent: 24.8,
+  },
+  present: {
+    engine: enginePresent,
+    carriage: carriagePresent,
+    engineAspect: 117 / 59, // ~1.98
+    carriageAspect: 955 / 386, // ~2.47
+    carriageHeight: 250,
+    engineHeight: 250,
+    couplerOverlap: 6, // overlap gangway rubber bellows flush
+    trackBottomPercent: 24.8,
+  },
+  future: {
+    engine: engineFuture,
+    carriage: carriageFuture,
+    engineAspect: 124 / 80, // ~1.55
+    carriageAspect: 1010 / 601, // ~1.68
+    carriageHeight: 250,
+    engineHeight: 250,
+    couplerOverlap: 12, // overlap maglev couplers flush
+    trackBottomPercent: 24.8,
+  },
+};
 
-  // Track position (Section 3.1)
-  const trackY = stageHeight * ZONES.TRACK_Y_START;
-  const trainTop = trackY - trainH + 10;
+export function Train({
+  era,
+  phase,
+  activeStage,
+  solvedStages,
+  stageWidth,
+}: TrainProps) {
+  const data = TRAIN_DATA[era] || TRAIN_DATA.present;
+  const clues = getCarriageCluesForEra(era);
 
-  // Calculate X position based on phase
-  const dockX = stageWidth * ZONES.TRAIN_DOCK_X;
-  let trainX: number;
+  const carriageH = data.carriageHeight;
+  const engineH = data.engineHeight;
+  const engineW = Math.round(engineH * data.engineAspect);
+  const carriageW = Math.round(carriageH * data.carriageAspect);
+  const overlap = data.couplerOverlap;
 
-  const phaseDuration = {
-    ARRIVING: TRAIN.ARRIVE_MS,
-    DOCKED: TRAIN.DOCKED_MS,
-    DEPARTING: TRAIN.DEPART_MS,
-    EMPTY: TRAIN.EMPTY_MS,
-  }[phase];
+  // Horizontal position to center the active carriage on screen
+  // Car 0 starts at (engineW - overlap)
+  // Car 1 starts at (engineW - overlap) + (carriageW - overlap)
+  // Car 2 starts at (engineW - overlap) + (carriageW - overlap) * 2
+  const carriageCenterOffsets = [
+    engineW - overlap + carriageW / 2,
+    engineW - overlap + (carriageW - overlap) + carriageW / 2,
+    engineW - overlap + (carriageW - overlap) * 2 + carriageW / 2,
+  ];
 
-  const progress = 1 - timeLeft / phaseDuration;
+  const screenCenterX = stageWidth / 2;
+  const targetX = screenCenterX - carriageCenterOffsets[activeStage];
 
-  switch (phase) {
-    case 'ARRIVING':
-      // Slide in from right edge to dock position
-      trainX = stageWidth + totalW - (stageWidth + totalW - dockX) * progress;
-      break;
-    case 'DOCKED':
-      trainX = dockX;
-      break;
-    case 'DEPARTING':
-      // Slide out to left
-      trainX = dockX - (dockX + totalW + 50) * progress;
-      break;
-    case 'EMPTY':
-    default:
-      return null; // No train visible
-  }
+  const transformStyle =
+    phase === 'DEPARTING'
+      ? `translateX(-3800px)`
+      : `translateX(${targetX}px)`;
+
+  const transitionStyle =
+    phase === 'DEPARTING'
+      ? 'transform 1.8s cubic-bezier(0.4, 0, 1, 1)'
+      : 'transform 0.85s cubic-bezier(0.22, 1, 0.36, 1)';
 
   return (
     <div
-      className="train-sprite"
+      className={`train-container era-${era} phase-${phase}`}
       style={{
-        left: trainX,
-        top: trainTop,
-        height: trainH,
+        position: 'absolute',
+        bottom: `${data.trackBottomPercent}%`,
+        left: 0,
+        height: Math.max(engineH, carriageH),
+        display: 'flex',
+        alignItems: 'flex-end',
+        transform: transformStyle,
+        transition: transitionStyle,
+        zIndex: 10,
+        pointerEvents: 'auto',
       }}
     >
-      {/* Engine */}
+      {/* 1. Locomotive Engine */}
       <div
-        className="train-car train-car-rect"
+        className="train-car train-engine"
         style={{
           width: engineW,
-          height: trainH,
-          background: colors.engine,
-          borderRadius: '4px 8px 2px 2px',
+          height: engineH,
+          position: 'relative',
+          flexShrink: 0,
+          zIndex: 12,
         }}
       >
-        {/* Windows */}
-        <div style={{
-          position: 'absolute', top: 8, left: 8, right: 8, height: 12,
-          display: 'flex', gap: 4,
-        }}>
-          {[0, 1, 2].map(i => (
-            <div key={i} style={{
-              flex: 1, background: 'rgba(180,220,255,.7)', border: '1px solid rgba(0,0,0,.3)',
-            }} />
-          ))}
-        </div>
-        {/* Wheels */}
-        <div style={{
-          position: 'absolute', bottom: -4, left: 8, display: 'flex', gap: 12,
-        }}>
-          {[0, 1, 2].map(i => (
-            <div key={i} style={{
-              width: 10, height: 10, borderRadius: '50%', background: '#333',
-              border: '2px solid #666',
-            }} />
-          ))}
-        </div>
+        <img
+          src={data.engine}
+          alt={`${era} locomotive engine`}
+          className="train-sprite-img"
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'block',
+            imageRendering: 'pixelated',
+          }}
+        />
       </div>
 
-      {/* Carriages */}
-      {Array.from({ length: carriageCount }, (_, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'flex-end' }}>
-          {/* Coupling */}
-          <div style={{ width: 4, height: 6, background: '#555', alignSelf: 'center' }} />
+      {/* 2. Carriages (1, 2, 3) coupled tightly flush */}
+      {[0, 1, 2].map((idx) => {
+        const isSolved = solvedStages[idx];
+        const isActive = activeStage === idx && !isSolved && phase === 'DOCKED';
+        const clue = clues[idx];
+
+        return (
           <div
-            className="train-car train-car-rect"
+            key={idx}
+            className={`train-car train-carriage car-unit-${idx + 1} ${isActive ? 'is-active' : ''} ${
+              isSolved ? 'is-solved' : ''
+            }`}
             style={{
-              width: carriageW - 4,
-              height: trainH - 5,
-              background: colors.carriage,
-              borderRadius: '2px',
+              width: carriageW,
+              height: carriageH,
               position: 'relative',
+              marginLeft: -overlap,
+              flexShrink: 0,
+              zIndex: 10 - idx,
             }}
           >
-            {/* Carriage windows */}
-            <div style={{
-              position: 'absolute', top: 6, left: 4, right: 4, height: 10,
-              display: 'flex', gap: 3,
-            }}>
-              {[0, 1, 2].map(j => (
-                <div key={j} style={{
-                  flex: 1, background: 'rgba(180,220,255,.5)', border: '1px solid rgba(0,0,0,.2)',
-                }} />
-              ))}
+            {/* Floating Active Marker above carriage roof in the sky */}
+            {isActive && (
+              <div className="active-carriage-marker">
+                <span className="marker-arrow">▼</span>
+                <span className="marker-text">ACTIVE CARRIAGE {idx + 1}</span>
+              </div>
+            )}
+
+              {/* Carriage Sprite Image */}
+              <img
+                src={data.carriage}
+                alt={`${era} carriage ${idx + 1}`}
+                className="train-sprite-img"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  display: 'block',
+                  imageRendering: 'pixelated',
+                }}
+              />
+
+              {/* Integrated Clue Plate on carriage body side panel */}
+              <div
+                className={`carriage-clue-plate era-${era} ${
+                  isActive ? 'active' : isSolved ? 'solved' : 'locked'
+                }`}
+              >
+                <div className="plate-top-row">
+                  <span className="plate-car-tag">CAR {idx + 1}</span>
+                  <span className="plate-status-tag">
+                    {isSolved ? '✓ SOLVED' : isActive ? '● ACTIVE' : '🔒 LOCKED'}
+                  </span>
+                </div>
+
+                <div className="plate-clue-text">{clue.title}</div>
+                <div className="plate-clue-sub">{clue.hint}</div>
+              </div>
             </div>
-            {/* Wheels */}
-            <div style={{
-              position: 'absolute', bottom: -4, left: 6, display: 'flex', gap: 10,
-            }}>
-              {[0, 1].map(j => (
-                <div key={j} style={{
-                  width: 8, height: 8, borderRadius: '50%', background: '#333',
-                  border: '2px solid #666',
-                }} />
-              ))}
-            </div>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

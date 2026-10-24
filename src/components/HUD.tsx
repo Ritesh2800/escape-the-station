@@ -1,18 +1,26 @@
-import type { TrainPhase } from '../game/state';
-import { sound } from '../game/audio';
 import { useState } from 'react';
+import type { Era } from '../game/state';
+import { ERA_INFO } from '../game/config';
+import { sound } from '../game/audio';
 
 interface HUDProps {
-  phase: TrainPhase;
+  era: Era;
   timeLeft: number;
-  level: 1 | 2;
-  rulePassCount?: number;
-  ruleTotalCount?: number;
+  activeStage: 0 | 1 | 2;
+  isDeparting?: boolean;
+  onExit?: () => void;
 }
 
-export function HUD({ phase, timeLeft, level, rulePassCount = 0, ruleTotalCount = 0 }: HUDProps) {
-  const seconds = Math.ceil(timeLeft / 1000);
+export function HUD({
+  era,
+  timeLeft,
+  activeStage,
+  isDeparting = false,
+  onExit,
+}: HUDProps) {
   const [muted, setMuted] = useState(sound.getMuted());
+  const info = ERA_INFO[era];
+  const isUrgent = timeLeft <= 10 && !isDeparting;
 
   const handleToggleSound = () => {
     const isNowMuted = sound.toggleMute();
@@ -23,38 +31,54 @@ export function HUD({ phase, timeLeft, level, rulePassCount = 0, ruleTotalCount 
   };
 
   return (
-    <div className="hud-bar">
-      <span className="level-indicator">LVL {level}/2</span>
-      <span className={`hud-phase ${phase}`}>{phase}</span>
-      {phase !== 'EMPTY' && (
-        <span className={`hud-countdown ${phase === 'DEPARTING' ? 'departing' : phase === 'DOCKED' ? 'docked' : ''}`}>
-          {seconds}s
+    <div className="hud-bar-container">
+      {/* 1. Timeline / Era Badge */}
+      <div className={`hud-era-badge era-${era}`}>
+        <span className="era-dot" />
+        <span className="era-text">
+          {info.label} · {info.name.toUpperCase()}
         </span>
-      )}
-      {level === 2 && (
-        <span className="rule-counter">RULES {rulePassCount}/{ruleTotalCount}</span>
-      )}
-      <button
-        onClick={handleToggleSound}
-        className="sound-toggle-btn"
-        title={muted ? 'Unmute 8-Bit Audio' : 'Mute 8-Bit Audio'}
-        style={{
-          background: muted ? 'rgba(255,82,82,.2)' : 'rgba(74,222,128,.2)',
-          border: `1.5px solid ${muted ? '#ff5252' : '#4ade80'}`,
-          color: muted ? '#ff5252' : '#4ade80',
-          fontFamily: 'var(--font-pixel)',
-          fontSize: '9px',
-          padding: '4px 8px',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          marginLeft: 'auto',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-        }}
+      </div>
+
+      {/* 2. 30s Countdown Timer */}
+      <div
+        className={`hud-countdown-badge ${
+          isDeparting ? 'departing' : isUrgent ? 'urgent' : 'normal'
+        }`}
       >
-        {muted ? '🔇 OFF' : '🔊 8-BIT'}
-      </button>
+        <span className="timer-icon">{isDeparting ? '🚂' : isUrgent ? '⚠' : '⏳'}</span>
+        <span className="timer-seconds">
+          {isDeparting ? 'DEPARTED' : `${timeLeft}s`}
+        </span>
+      </div>
+
+      {/* 3. Carriage Stage Indicator */}
+      <div className="hud-stage-badge">
+        <span>CAR {activeStage + 1}/3</span>
+      </div>
+
+      {/* 4. Controls */}
+      <div className="hud-actions">
+        <button
+          type="button"
+          onClick={handleToggleSound}
+          className="hud-control-btn sound-btn"
+          title={muted ? 'Unmute Audio' : 'Mute Audio'}
+        >
+          {muted ? '🔇' : '🔊'}
+        </button>
+
+        {onExit && (
+          <button
+            type="button"
+            onClick={onExit}
+            className="hud-control-btn exit-btn"
+            title="Return to Login (ESC)"
+          >
+            ✕ ESC
+          </button>
+        )}
+      </div>
     </div>
   );
 }
