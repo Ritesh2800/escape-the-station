@@ -135,21 +135,20 @@ export default function App() {
     }, 1300);
   }, []);
 
-  // Fail handler
+  // Fail handler - closes the game UI and shrinks to CAPTCHA box
   const handleFail = useCallback((reason: string) => {
     clearInterval(timerIntervalRef.current);
+    sound.stopBGM();
     sound.playError();
+    sound.startTrainSound();
     setFailReason(reason);
     setRoundPhase('FAIL');
 
-    // If 30s timeout or departure -> train departs and shrink back to CAPTCHA box
-    if (reason === "Time's up!" || reason.includes('departed')) {
-      sound.startTrainSound();
-      setTimeout(() => {
-        sound.stopTrainSound();
-        setUiMode('COLLAPSING');
-      }, 1800);
-    }
+    // Automatically close the game UI and shrink back to CAPTCHA box
+    setTimeout(() => {
+      sound.stopTrainSound();
+      setUiMode('COLLAPSING');
+    }, 700);
   }, []);
 
   // Lose life handler
@@ -310,17 +309,6 @@ export default function App() {
               phase={roundPhase}
               failReason={failReason}
               durationSeconds={solveDuration}
-              onTryAgain={() => startNewRound()}
-              onNextGame={() => {
-                const nextCandidate = selectNextGame('random', rng.current);
-                setSelectedGameSetting('random');
-                startNewRound(nextCandidate.id);
-              }}
-              onClose={() => {
-                sound.stopBGM();
-                sound.stopTrainSound();
-                setUiMode('COLLAPSING');
-              }}
             />
 
             {/* Bottom Disclaimer Strip required by spec */}

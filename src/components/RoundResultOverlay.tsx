@@ -5,9 +5,6 @@ interface RoundResultOverlayProps {
   phase: RoundPhase;
   failReason: string;
   durationSeconds: number;
-  onTryAgain: () => void;
-  onNextGame: () => void;
-  onClose: () => void;
 }
 
 const CONFETTI_COLORS = ['#ffd445', '#4ade80', '#3aa0e0', '#ff5de0', '#4ff0ff', '#ffffff'];
@@ -16,9 +13,6 @@ export function RoundResultOverlay({
   phase,
   failReason,
   durationSeconds,
-  onTryAgain,
-  onNextGame,
-  onClose,
 }: RoundResultOverlayProps) {
   const [confetti, setConfetti] = useState<Array<{ id: number; x: number; color: string; delay: number }>>([]);
 
@@ -57,7 +51,7 @@ export function RoundResultOverlay({
         </div>
       )}
 
-      <div className="result-card-box">
+      <div className={`result-card-box ${phase === 'FAIL' ? 'failed' : ''}`}>
         {phase === 'PASS' ? (
           <>
             <div className="result-pass-title">VERIFIED ✓ HUMAN</div>
@@ -70,31 +64,10 @@ export function RoundResultOverlay({
           </>
         ) : (
           <>
-            <div className="result-fail-title">FAILED ✗</div>
-            <div className="result-fail-reason">{failReason || "Time's up!"}</div>
-
-            <div className="result-actions-row">
-              <button
-                type="button"
-                className="result-action-btn try-again-btn"
-                onClick={onTryAgain}
-              >
-                🔄 Try Again
-              </button>
-              <button
-                type="button"
-                className="result-action-btn next-game-btn"
-                onClick={onNextGame}
-              >
-                ⏩ Next Game
-              </button>
-              <button
-                type="button"
-                className="result-action-btn close-btn"
-                onClick={onClose}
-              >
-                ✕ Close
-              </button>
+            <div className="result-fail-title">TIME'S UP! ✗</div>
+            <div className="result-fail-reason">{failReason || "Train departed."}</div>
+            <div className="result-returning-note">
+              Closing...
             </div>
           </>
         )}

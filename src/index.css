@@ -1139,116 +1139,321 @@ img { image-rendering: pixelated; }
   pointer-events: none;
 }
 
-/* ===== GAME 3: SORT THE TRAIN ===== */
-.sort-train-container {
+/* ===== GAME 3: SORT THE TRAIN (BIG TRAIN & CARRIAGES ON TRACK) ===== */
+.sort-train-game-layer {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  align-items: center;
-  padding-bottom: 50px;
-  pointer-events: none;
-}
-.train-front-marker {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-pixel);
-  font-size: 7px;
-  color: #22d3ee;
-  background: rgba(6, 14, 32, 0.9);
-  border: 1px solid #06b6d4;
-  padding: 2px 8px;
-  border-radius: 3px;
-  margin-bottom: 8px;
-}
-.sort-carriages-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   pointer-events: auto;
+  overflow: hidden;
 }
-.sort-carriage-slot {
+
+/* Shunter Rule Banner in the Sky */
+.sort-shunter-rule-banner {
+  position: absolute;
+  top: 68px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  z-index: 35;
+  pointer-events: none;
 }
-.slot-coupler-light {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #334155;
-  border: 1px solid rgba(255,255,255,0.2);
-  transition: all 0.25s ease;
+.shunter-rule-pill {
+  background: rgba(10, 15, 30, 0.95);
+  border: 1.5px solid #ffd445;
+  border-radius: 4px;
+  padding: 4px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 0 14px rgba(255, 212, 69, 0.4);
 }
-.slot-coupler-light.correct {
-  background: #22c55e;
-  border-color: #86efac;
-  box-shadow: 0 0 8px #22c55e;
+.shunter-rule-icon {
+  color: #ffd445;
+  font-size: 9px;
 }
-.sort-carriage-card {
-  width: 140px;
-  height: 130px;
+.shunter-rule-title {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: #fef08a;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+.shunter-progress-pill {
+  font-family: var(--font-pixel);
+  font-size: 6.5px;
+  color: #a5f3fc;
   background: rgba(15, 23, 42, 0.92);
-  border: 2px solid #334155;
-  border-radius: 6px;
+  border: 1px solid rgba(6, 182, 212, 0.4);
+  padding: 2px 10px;
+  border-radius: 3px;
+  letter-spacing: 0.4px;
+}
+.shunter-progress-complete {
+  color: #4ade80;
+  font-weight: bold;
+  text-shadow: 0 0 6px rgba(74, 222, 128, 0.8);
+}
+
+/* Big Train Container on Station Track */
+.sort-big-train-container {
+  position: absolute;
+  bottom: 24.8%;
+  left: 36px;
+  display: flex;
+  align-items: flex-end;
+  z-index: 20;
+  will-change: transform;
+  user-select: none;
+}
+.sort-train-engine {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+.locomotive-label-tag {
+  position: absolute;
+  top: -20px;
+  left: 8px;
+  font-family: var(--font-pixel);
+  font-size: 6px;
+  color: #22d3ee;
+  background: rgba(6, 14, 32, 0.92);
+  border: 1px solid #06b6d4;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 0 6px rgba(6, 182, 212, 0.4);
+}
+
+/* 4 Big Coupled Carriages */
+.sort-carriages-line {
+  display: flex;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+.sort-big-carriage-wrapper {
+  position: relative;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1), filter 0.2s ease;
+}
+.sort-big-carriage-wrapper:hover {
+  transform: translateY(-6px);
+}
+.sort-big-carriage-wrapper.is-selected {
+  transform: translateY(-16px) !important;
+  z-index: 30;
+  filter: drop-shadow(0 0 12px #ffd445);
+}
+.sort-big-carriage-wrapper.is-drag-over {
+  transform: scale(1.04);
+  filter: drop-shadow(0 0 16px #22d3ee);
+}
+.sort-big-carriage-wrapper.is-slot-correct .sort-carriage-sprite-frame {
+  filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.6));
+}
+
+/* Coupler Beacon above each carriage slot */
+.sort-coupler-beacon {
+  position: absolute;
+  top: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-pixel);
+  font-size: 6px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(10, 15, 30, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  white-space: nowrap;
+  z-index: 25;
+  pointer-events: none;
+  transition: all 0.2s ease;
+}
+.sort-coupler-beacon.beacon-correct {
+  border-color: #22c55e;
+  color: #4ade80;
+  background: rgba(6, 78, 59, 0.95);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+}
+.sort-coupler-beacon.beacon-uncoupled {
+  border-color: #64748b;
+  color: #94a3b8;
+}
+.sort-coupler-beacon .beacon-dot {
+  font-size: 7px;
+}
+
+/* Floating Selected Marker and adjacent swap buttons */
+.sort-selected-floater {
+  position: absolute;
+  top: -54px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  padding: 6px;
-  cursor: pointer;
-  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1), border-color 0.2s ease, box-shadow 0.2s ease;
-  user-select: none;
+  gap: 3px;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1.5px solid #ffd445;
+  border-radius: 4px;
+  padding: 3px 6px;
+  box-shadow: 0 0 16px rgba(255, 212, 69, 0.8);
+  z-index: 35;
+  white-space: nowrap;
+  animation: floater-bob 0.8s infinite alternate ease-in-out;
 }
-.sort-carriage-card:hover {
-  border-color: #818cf8;
-  transform: translateY(-4px);
+@keyframes floater-bob {
+  from { transform: translateX(-50%) translateY(0); }
+  to { transform: translateX(-50%) translateY(-3px); }
 }
-.sort-carriage-card.selected {
-  border-color: #ffd445;
-  box-shadow: 0 0 14px rgba(255, 212, 69, 0.6);
-  transform: translateY(-8px);
+.sort-selected-floater .floater-title {
+  font-family: var(--font-pixel);
+  font-size: 6px;
+  color: #ffd445;
+  font-weight: bold;
 }
-.sort-carriage-card.slot-correct {
-  border-color: #22c55e;
-}
-.sort-card-sprite {
-  width: 100%;
-  height: 52px;
-  object-fit: contain;
-  image-rendering: pixelated;
-}
-.sort-data-plate {
-  width: 100%;
-  background: rgba(0, 0, 0, 0.6);
-  border-radius: 3px;
-  padding: 3px 5px;
+.sort-selected-floater .floater-controls {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 5px;
+}
+.sort-selected-floater .floater-nav-btn {
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  background: #312e81;
+  border: 1px solid #818cf8;
+  color: #fff;
+  border-radius: 2px;
+  padding: 1px 6px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.sort-selected-floater .floater-nav-btn:hover:not(:disabled) {
+  background: #4338ca;
+  border-color: #ffd445;
+}
+.sort-selected-floater .floater-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.sort-selected-floater .floater-idx-text {
   font-family: var(--font-pixel);
   font-size: 6px;
   color: #e2e8f0;
 }
-.sort-data-plate .plate-dest {
+
+/* Carriage Sprite & Plates */
+.sort-carriage-sprite-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+.sort-carriage-color-belt {
+  position: absolute;
+  top: 10px;
+  left: 5%;
+  right: 5%;
+  height: 5px;
+  border-radius: 2px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.sort-carriage-color-belt .color-belt-name {
+  font-family: var(--font-pixel);
+  font-size: 5px;
+  color: #000;
+  font-weight: bold;
+  text-shadow: 0 0 2px #fff;
+  letter-spacing: 0.5px;
+}
+
+.sort-carriage-plate {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 175px;
+  max-width: 80%;
+  padding: 3px 6px;
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 18;
+  pointer-events: none;
+}
+.sort-carriage-plate.era-present {
+  background: rgba(10, 14, 28, 0.94);
+  border: 1.5px solid #818cf8;
+  color: #fbbf24;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+.sort-carriage-plate.era-past {
+  background: rgba(36, 18, 10, 0.94);
+  border: 1.5px solid #e8b84a;
+  color: #fde68a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+.sort-carriage-plate.era-future {
+  background: rgba(6, 14, 32, 0.94);
+  border: 1.5px solid #22d3ee;
+  color: #a5f3fc;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+.sort-carriage-plate .plate-header-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-pixel);
+  font-size: 5.5px;
+}
+.sort-carriage-plate .plate-carriage-id {
   color: #ffd445;
   font-weight: bold;
 }
-.sort-data-plate .plate-sub {
+.sort-carriage-plate .plate-carriage-weight {
   color: #94a3b8;
 }
-.sort-helper-bar {
-  margin-top: 10px;
+.sort-carriage-plate .plate-destination-led {
   font-family: var(--font-pixel);
-  font-size: 6.5px;
-  color: #94a3b8;
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(255,255,255,0.1);
-  padding: 2px 8px;
-  border-radius: 3px;
+  font-size: 9px;
+  font-weight: bold;
+  color: #fbbf24;
+  letter-spacing: 1px;
+  text-shadow: 0 0 5px rgba(251, 191, 36, 0.8);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sort-carriage-plate .plate-footer-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-pixel);
+  font-size: 5.5px;
+  opacity: 0.9;
+}
+.sort-carriage-plate .plate-windows-tag {
+  color: #e2e8f0;
+}
+.sort-carriage-plate .plate-slot-target-tag {
+  color: #4ade80;
+  font-weight: bold;
 }
 
 /* ===== GAME 4: SPOT THE ROBOTS ===== */
